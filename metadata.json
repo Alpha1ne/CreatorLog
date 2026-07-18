@@ -1,0 +1,6 @@
+{
+  "name": "Voice Of Melody",
+  "description": "Your personal Instagram song posting manager and promotion income tracker.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

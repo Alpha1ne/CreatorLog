@@ -1,0 +1,66 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer Squircle Border (Matches user logo's outer border) -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M 37,21 L 71,21 A 16,16 0 0,1 87,37 L 87,71 A 16,16 0 0,1 71,87 L 37,87 A 16,16 0 0,1 21,71 L 21,37 A 16,16 0 0,1 37,21 Z" />
+
+    <!-- Small Circle in the upper right corner (Camera/Record lens) -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="1.8"
+        android:pathData="M 75.5,29 A 3.5,3.5 0 1,1 75.4,29 Z" />
+
+    <!-- Tiny Dot next to small circle -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 80.5,26.7 A 0.8,0.8 0 1,1 80.4,26.7 Z" />
+
+    <!-- Central Circle Outline -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="2"
+        android:pathData="M 54,32 A 22,22 0 1,1 53.9,32 Z" />
+
+    <!-- Sound waves on the Left -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M 36,52.5 L 36,55.5 M 39,49.5 L 39,58.5 M 42,45.5 L 42,62.5 M 45,49.5 L 45,58.5 M 48,52.5 L 48,55.5" />
+
+    <!-- Sound waves on the Right -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M 60,52.5 L 60,55.5 M 63,49.5 L 63,58.5 M 66,45.5 L 66,62.5 M 69,49.5 L 69,58.5 M 72,52.5 L 72,55.5" />
+
+    <!-- Elegant Curved Wave at the Bottom -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 42,70 C 48,75 60,75 66,69 C 59,71 49,71 42,70 Z" />
+
+    <!-- Eighth Musical Note -->
+    <!-- Note Head (rotated ellipse) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 49,62 C 45.5,63.5 42,66.5 42,69.5 C 42,72.5 45,74.5 49,74.5 C 53,74.5 55.5,71.5 55.5,68.5 C 55.5,67 54.5,65.5 53,64 Z" />
+
+    <!-- Note Stem -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 52.75,39 L 55.25,39 L 55.25,68 L 52.75,68 Z" />
+
+    <!-- Note Flag -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 55.25,39 C 61,39 66,44 66,51 C 63.5,48.5 60,47 55.25,48 Z" />
+
+</vector>
