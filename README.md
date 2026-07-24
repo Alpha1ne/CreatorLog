@@ -1,12 +1,12 @@
-# Voice Of Melody — Content Tracker
+# CreatorLog — Content Tracker
 
 An Android app built to help an Instagram music page (Voice Of Melody) track its posting history and content ideas in one place — no more scrolling back through the feed to remember what's already been posted.
 
 ## Features
 
 - **Dashboard** — quick overview of posting activity
-- **Songs Tracker** — log every song post: title, movie, singers, language, and notes
-- **Idea Vault** — capture content ideas before they turn into posts
+- **Songs Tracker** — log every song post: title, movie, singers, music director, language, and notes
+- **Idea Vault** — capture content ideas before they turn into posts, with posted-status tracking
 - **Backup & Restore** — export/import data as JSON or CSV via clipboard, so nothing is lost if the app is reinstalled
 - **Light / Dark / System theme** support
 
@@ -16,6 +16,17 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Jetpack Compose
 - Room (local SQLite database)
 - Material 3
+
+## Changelog
+
+**v1.2.0**
+- Added music director and language fields to song entries
+- Added posted-status tracking to Idea Vault entries
+- Fixed a crash that could occur when importing a malformed backup file (CSV/JSON)
+- Updated app icon
+
+**v1.0**
+- Initial release — song post tracker, idea vault, backup/restore, theming
 
 ## How this was built
 
