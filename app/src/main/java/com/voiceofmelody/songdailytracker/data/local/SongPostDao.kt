@@ -18,7 +18,7 @@ interface SongPostDao {
     @Delete
     suspend fun deleteSongPost(songPost: SongPost)
 
-    @Query("SELECT * FROM song_posts WHERE title LIKE :query OR movieName LIKE :query OR singers LIKE :query OR musicDirector LIKE :query OR language LIKE :query ORDER BY postDate DESC")
+    @Query("SELECT * FROM song_posts WHERE title LIKE :query OR movieName LIKE :query OR singers LIKE :query OR musicDirector LIKE :query OR language LIKE :query OR notes LIKE :query ORDER BY COALESCE(postDate, 0) DESC")
     fun searchSongPosts(query: String): Flow<List<SongPost>>
 
     @Query("SELECT * FROM song_posts WHERE LOWER(TRIM(title)) = LOWER(TRIM(:title))")

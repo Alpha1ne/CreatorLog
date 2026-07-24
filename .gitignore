@@ -16,4 +16,5 @@
 local.properties
 .env
 debug.keystore
+/.artifacts/
 /app/release/

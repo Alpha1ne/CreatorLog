@@ -33,18 +33,15 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
+fun DashboardScreen(
+    viewModel: TrackerViewModel, 
+    onNavigateToAddEdit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val stats by viewModel.statsState.collectAsState()
     val songPosts by viewModel.allSongPosts.collectAsState()
     val recentSongs = remember(songPosts) { songPosts.take(3) }
     val scrollState = rememberScrollState()
-
-    var showQuickAddDialog by remember { mutableStateOf(value = false) }
-
-    // Dialog state for interception duplicate confirmation locally
-    var showDuplicateConfirmDialog by remember { mutableStateOf(value = false) }
-    var duplicateDateText by remember { mutableStateOf("") }
-    var pendingSongData by remember { mutableStateOf<SongPost?>(null) }
 
     Column(
         modifier = modifier
@@ -54,10 +51,10 @@ fun DashboardScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         if (stats.isLibraryEmpty) {
-            WelcomeCard(onQuickAddClicked = { showQuickAddDialog = true })
+            WelcomeCard(onQuickAddClicked = onNavigateToAddEdit)
         } else {
             // Hero Header Section with Quick Add Action
-            CreatorHeroHeader(onQuickAddClicked = { showQuickAddDialog = true })
+            CreatorHeroHeader(onQuickAddClicked = onNavigateToAddEdit)
         }
 
         // Posting Stats Grid Header
@@ -70,14 +67,14 @@ fun DashboardScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
             StatsGridCard(
                 title = "Posted Today",
                 value = stats.songsPostedToday,
-                subtitle = "New tracks logged",
+                subtitle = "Tracks logged today",
                 icon = Icons.Default.Today,
                 gradientColors = listOf(Color(0xFFE1306C), Color(0xFFC13584)),
                 modifier = Modifier.weight(1f)
             )
             StatsGridCard(
                 title = "Total Posted",
-                value = stats.totalSongs,
+                value = stats.postedSongsCount,
                 subtitle = "All-time history",
                 icon = Icons.Default.MusicNote,
                 gradientColors = listOf(Color(0xFF833AB4), Color(0xFF5B259F)),
@@ -98,9 +95,9 @@ fun DashboardScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
                 modifier = Modifier.weight(1f)
             )
             StatsGridCard(
-                title = "This Month",
-                value = stats.songsThisMonth,
-                subtitle = "Monthly targets",
+                title = "Scheduled",
+                value = stats.scheduledSongsCount,
+                subtitle = "Upcoming tracks",
                 icon = Icons.Default.CalendarMonth,
                 gradientColors = listOf(Color(0xFF10B981), Color(0xFF059669)),
                 modifier = Modifier.weight(1f)
@@ -124,75 +121,6 @@ fun DashboardScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
 
         // Extra space for Floating Navigation Bar
         Spacer(modifier = Modifier.height(100.dp))
-    }
-
-    // Quick Add Song Dialog
-    if (showQuickAddDialog) {
-        SongFormDialog(
-            viewModel = viewModel,
-            onDismiss = { showQuickAddDialog = false },
-            onSaveWithInterception = { title, movie, singers, notes, director, lang, date ->
-                val cleanNewTitle = cleanStringForComparison(title)
-                val existingDuplicate = songPosts.find { cleanStringForComparison(it.title) == cleanNewTitle }
-                if (existingDuplicate != null) {
-                    val dupeDate = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(existingDuplicate.postDate))
-                    duplicateDateText = dupeDate
-                    pendingSongData = SongPost(
-                        entryNumber = 0,
-                        title = title,
-                        movieName = movie,
-                        singers = singers,
-                        notes = notes,
-                        musicDirector = director,
-                        language = lang,
-                        postDate = date
-                    )
-                    showDuplicateConfirmDialog = true
-                } else {
-                    viewModel.addSongPost(title, movie, singers, notes, director, lang, date)
-                    showQuickAddDialog = false
-                }
-            }
-        )
-    }
-
-    // Local Duplicate Interception Dialog
-    if (showDuplicateConfirmDialog && (pendingSongData != null)) {
-        AlertDialog(
-            onDismissRequest = { showDuplicateConfirmDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Text("Song Already Exists", fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Text("This song was already posted on:\n$duplicateDateText\n\nDo you still want to save it?")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val pending = pendingSongData!!
-                        viewModel.addSongPost(pending.title, pending.movieName, pending.singers, pending.notes, pending.musicDirector, pending.language, pending.postDate)
-                        showQuickAddDialog = false
-                        showDuplicateConfirmDialog = false
-                        pendingSongData = null
-                    }
-                ) {
-                    Text("Save Anyway")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showDuplicateConfirmDialog = false
-                        pendingSongData = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }
 
@@ -219,7 +147,7 @@ fun WelcomeCard(onQuickAddClicked: () -> Unit) {
                 modifier = Modifier.size(48.dp)
             )
             Text(
-                text = "Welcome to Voice Of Melody",
+                text = "Welcome to CreatorLog",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -653,7 +581,7 @@ fun RecentlyPostedFeed(recentSongs: List<SongPost>) {
                             )
                         }
                         Text(
-                            text = SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(song.postDate)),
+                            text = SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(song.postDate ?: 0L)),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -669,4 +597,3 @@ fun RecentlyPostedFeed(recentSongs: List<SongPost>) {
         }
     }
 }
-

@@ -63,7 +63,61 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
-@Database(entities = [SongPost::class, IdeaVaultEntry::class], version = 5, exportSchema = false)
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // --- Migrate song_posts ---
+        // 1. Create new table with exact schema expected by Room (postDate is nullable, isPostedConfirmed is added as NOT NULL)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `song_posts_new` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                `entryNumber` INTEGER NOT NULL, 
+                `title` TEXT NOT NULL, 
+                `movieName` TEXT NOT NULL, 
+                `singers` TEXT NOT NULL, 
+                `notes` TEXT NOT NULL, 
+                `musicDirector` TEXT NOT NULL, 
+                `language` TEXT NOT NULL, 
+                `postDate` INTEGER, 
+                `isPostedConfirmed` INTEGER NOT NULL
+            )
+        """.trimIndent())
+
+        // 2. Copy data. Set isPostedConfirmed = 1 for existing songs to preserve their "Posted" status.
+        db.execSQL("""
+            INSERT INTO song_posts_new (id, entryNumber, title, movieName, singers, notes, musicDirector, language, postDate, isPostedConfirmed)
+            SELECT id, entryNumber, title, movieName, singers, notes, musicDirector, language, postDate, 1 FROM song_posts
+        """.trimIndent())
+
+        // 3. Drop old table and rename new one
+        db.execSQL("DROP TABLE song_posts")
+        db.execSQL("ALTER TABLE song_posts_new RENAME TO song_posts")
+
+        // --- Migrate idea_vault (to remove metadata DEFAULT 0 which causes Room validation failure) ---
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `idea_vault_new` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                `title` TEXT NOT NULL, 
+                `content` TEXT NOT NULL, 
+                `category` TEXT, 
+                `color` INTEGER, 
+                `isPosted` INTEGER NOT NULL, 
+                `createdAt` INTEGER NOT NULL, 
+                `updatedAt` INTEGER NOT NULL, 
+                `isPinned` INTEGER NOT NULL
+            )
+        """.trimIndent())
+
+        db.execSQL("""
+            INSERT INTO idea_vault_new (id, title, content, category, color, isPosted, createdAt, updatedAt, isPinned)
+            SELECT id, title, content, category, color, isPosted, createdAt, updatedAt, isPinned FROM idea_vault
+        """.trimIndent())
+
+        db.execSQL("DROP TABLE idea_vault")
+        db.execSQL("ALTER TABLE idea_vault_new RENAME TO idea_vault")
+    }
+}
+
+@Database(entities = [SongPost::class, IdeaVaultEntry::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun songPostDao(): SongPostDao
     abstract fun ideaVaultDao(): IdeaVaultDao
@@ -79,7 +133,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "song_tracker_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
                 INSTANCE = instance
                 instance

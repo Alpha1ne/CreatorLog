@@ -72,7 +72,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                     if (success) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         Toast.makeText(context, "Backup restored successfully.", Toast.LENGTH_SHORT).show()
-                    } else restoreErrorMessage = "The selected file is not a valid Voice Of Melody backup."
+                    } else restoreErrorMessage = "The selected file is not a valid CreatorLog backup."
                 } else {
                     isOperating = false
                     restoreErrorMessage = "Could not read the selected file."
@@ -157,7 +157,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box {
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -175,7 +175,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 icon = Icons.Default.Backup,
                 onExport = {
                     val date = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.getDefault()).format(Date())
-                    createJsonLauncher.launch("VoiceOfMelody_Backup_$date.json")
+                    createJsonLauncher.launch("CreatorLog_Backup_$date.json")
                 },
                 onImport = {
                     pendingRestoreAction = { openJsonLauncher.launch(arrayOf("application/json")) }
@@ -193,7 +193,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 icon = Icons.Default.MusicNote,
                 onExport = {
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    createSongsCsvLauncher.launch("VoiceOfMelody_Songs_$date.csv")
+                    createSongsCsvLauncher.launch("CreatorLog_Songs_$date.csv")
                 },
                 onImport = {
                     pendingRestoreAction = { openSongsCsvLauncher.launch(arrayOf("text/comma-separated-values", "text/csv")) }
@@ -209,7 +209,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 icon = Icons.Default.Lightbulb,
                 onExport = {
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    createIdeasCsvLauncher.launch("VoiceOfMelody_IdeaPlanner_$date.csv")
+                    createIdeasCsvLauncher.launch("CreatorLog_IdeaPlanner_$date.csv")
                 },
                 onImport = {
                     pendingRestoreAction = { openIdeasCsvLauncher.launch(arrayOf("text/comma-separated-values", "text/csv")) }
@@ -223,10 +223,10 @@ fun BackupSection(viewModel: TrackerViewModel) {
 
         if (isOperating) {
             Surface(
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.fillMaxWidth().wrapContentHeight(),
                 color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.padding(32.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             }

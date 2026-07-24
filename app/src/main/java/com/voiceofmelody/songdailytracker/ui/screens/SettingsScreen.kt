@@ -39,7 +39,7 @@ fun SettingsScreen(
     ) { innerPadding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
@@ -76,25 +76,32 @@ fun SettingsScreen(
             }
 
             // About Section
-            SettingsSection(title = "ℹ️ About Voice Of Melody") {
+            SettingsSection(title = "ℹ️ About CreatorLog") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Voice Of Melody",
+                        text = "CreatorLog",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "A professional companion for Instagram curators to track song daily history, prevent duplicates, and plan future content with a dedicated planner.",
+                        text = "A personal content management app built for creators to organize songs, ideas, and posting schedules.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     
-                    InfoItem(label = "Version", value = "1.0.0")
-                    InfoItem(label = "Build", value = "2026.07.RC1")
+                    InfoItem(label = "Version", value = "1.2.0")
+                    InfoItem(label = "Build", value = "2026.07.RC2")
                     InfoItem(label = "Developer", value = "ATHUL C")
+                    
+                    Text(
+                        text = "Built with ❤️ for Content Creators",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     
                     Text(
                         text = "Powered by Android Jetpack Compose, Material 3, and Room Database.",

@@ -13,5 +13,6 @@ data class SongPost(
     val notes: String,
     val musicDirector: String = "",
     val language: String = "",
-    val postDate: Long = System.currentTimeMillis()
+    val postDate: Long? = null,
+    val isPostedConfirmed: Boolean = false
 )

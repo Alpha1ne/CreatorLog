@@ -6,23 +6,27 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -35,10 +39,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.ui.DuplicateGroup
 import com.voiceofmelody.songdailytracker.ui.MatchLevel
+import com.voiceofmelody.songdailytracker.ui.SongStatus
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.ViewMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -46,16 +53,18 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 enum class DateFilter(val displayName: String) {
-    ALL("All Time"),
-    TODAY("Today"),
-    THIS_WEEK("This Week"),
-    THIS_MONTH("This Month"),
-    THIS_YEAR("This Year")
+    ALL("All"),
+    POSTED("Posted"),
+    SCHEDULED("Scheduled"),
+    NO_DATE("No Date"),
+    DUPLICATE("Duplicate")
 }
 
 enum class SortOption(val displayName: String) {
     NEWEST("Newest First"),
     OLDEST("Oldest First"),
+    SCHEDULED_FIRST("Scheduled First"),
+    POSTED_FIRST("Posted First"),
     ALPHABETICAL("Alphabetical")
 }
 
@@ -67,20 +76,64 @@ fun cleanStringForComparison(input: String): String {
         .replace(Regex("[^a-zA-Z0-9\\s]"), "")
 }
 
+@Composable
+fun StatusBadge(status: SongStatus?) {
+    if (status == null) return
+
+    val color = when (status) {
+        SongStatus.SCHEDULED -> Color(0xFFFBBF24) // Gold
+        SongStatus.POSTED -> Color(0xFF10B981) // Green
+    }
+    
+    val text = when (status) {
+        SongStatus.SCHEDULED -> "Scheduled"
+        SongStatus.POSTED -> "Posted"
+    }
+
+    Surface(
+        color = color.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
+            Text(
+                text = text,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SongsScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
+fun SongsScreen(
+    viewModel: TrackerViewModel, 
+    onNavigateToAddEdit: (SongPost?) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val searchResults by viewModel.searchedSongs.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val allSongs by viewModel.allSongPosts.collectAsState()
+    val now by viewModel.currentTime.collectAsState()
     
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences("vof_settings", android.content.Context.MODE_PRIVATE) }
+    var viewMode by rememberSaveable { 
+        mutableStateOf(ViewMode.entries[sharedPrefs.getInt("songs_view_mode", 0)]) 
+    }
+
     val lazyListState = rememberLazyListState()
+    val lazyGridState = rememberLazyGridState()
     var highlightedSongId by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var songToEdit by remember { mutableStateOf<SongPost?>(null) }
     var songToDelete by remember { mutableStateOf<SongPost?>(null) }
     
     // Filters State
@@ -91,11 +144,6 @@ fun SongsScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
     var selectedSinger by remember { mutableStateOf("All") }
     var selectedMovie by remember { mutableStateOf("All") }
 
-    // Grouped Duplicate Dialog State
-    var showDuplicateMatchesDialog by remember { mutableStateOf(false) }
-    var pendingSongData by remember { mutableStateOf<SongPost?>(null) }
-    val duplicateMatches by viewModel.duplicateMatches.collectAsState()
-
     // Auto-clear highlight
     LaunchedEffect(highlightedSongId) {
         if (highlightedSongId != -1) {
@@ -104,7 +152,7 @@ fun SongsScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
         }
     }
 
-    // Dynamically extract dropdown options based on the actual DB content
+    // Dynamically extract dropdown options
     val languagesList = remember(allSongs) {
         allSongs.asSequence().map { it.language.trim() }.filter { it.isNotBlank() }.distinct().sorted().toList()
     }
@@ -115,226 +163,109 @@ fun SongsScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
         allSongs.asSequence().map { it.movieName.trim() }.filter { it.isNotBlank() }.distinct().sorted().toList()
     }
 
-    // Apply Client-Side Filters & Sort on top of Search results
-    val processedSongsList by remember(searchResults, dateFilter, selectedLanguage, selectedSinger, selectedMovie, sortBy) {
+    // Apply Client-Side Filters & Sort
+    val processedSongsList by remember(searchResults, dateFilter, selectedLanguage, selectedSinger, selectedMovie, sortBy, now, allSongs) {
         derivedStateOf {
             var list = searchResults
             
-            // Date Filtering
-            val now = System.currentTimeMillis()
+            // Status Filtering
             list = when (dateFilter) {
-                DateFilter.TODAY -> {
-                    val todayStart = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                    list.filter { it.postDate >= todayStart }
-                }
-                DateFilter.THIS_WEEK -> {
-                    val weekAgo = now - (7L * 24 * 60 * 60 * 1000)
-                    list.filter { it.postDate >= weekAgo }
-                }
-                DateFilter.THIS_MONTH -> {
-                    val monthStart = Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_MONTH, 1)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                    list.filter { it.postDate >= monthStart }
-                }
-                DateFilter.THIS_YEAR -> {
-                    val yearStart = Calendar.getInstance().apply {
-                        set(Calendar.DAY_OF_YEAR, 1)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                    list.filter { it.postDate >= yearStart }
-                }
                 DateFilter.ALL -> list
-            }
-
-            // Language Filtering
-            if (selectedLanguage != "All") {
-                list = list.filter { it.language.trim().equals(selectedLanguage, ignoreCase = true) }
-            }
-
-            // Singer Filtering
-            if (selectedSinger != "All") {
-                list = list.filter { song ->
-                    song.singers.split(",").any { it.trim().equals(selectedSinger, ignoreCase = true) }
+                DateFilter.POSTED -> list.filter { viewModel.getSongStatus(it, now) == SongStatus.POSTED }
+                DateFilter.SCHEDULED -> list.filter { viewModel.getSongStatus(it, now) == SongStatus.SCHEDULED }
+                DateFilter.NO_DATE -> list.filter { it.postDate == null }
+                DateFilter.DUPLICATE -> list.filter { song ->
+                    allSongs.count { 
+                        it.title.lowercase().trim() == song.title.lowercase().trim() &&
+                        it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
+                        it.singers.lowercase().trim() == song.singers.lowercase().trim()
+                    } > 1
                 }
             }
 
-            // Movie Filtering
-            if (selectedMovie != "All") {
-                list = list.filter { it.movieName.trim().equals(selectedMovie, ignoreCase = true) }
-            }
+            // Metadata Filters
+            if (selectedLanguage != "All") list = list.filter { it.language.trim().equals(selectedLanguage, ignoreCase = true) }
+            if (selectedSinger != "All") list = list.filter { song -> song.singers.split(",").any { it.trim().equals(selectedSinger, ignoreCase = true) } }
+            if (selectedMovie != "All") list = list.filter { it.movieName.trim().equals(selectedMovie, ignoreCase = true) }
 
             // Sorting
             list = when (sortBy) {
-                SortOption.NEWEST -> list.sortedByDescending { it.postDate }
-                SortOption.OLDEST -> list.sortedBy { it.postDate }
+                SortOption.NEWEST -> list.sortedByDescending { it.postDate ?: 0L }
+                SortOption.OLDEST -> list.sortedBy { it.postDate ?: Long.MAX_VALUE }
+                SortOption.SCHEDULED_FIRST -> list.sortedByDescending { viewModel.getSongStatus(it, now) == SongStatus.SCHEDULED }
+                SortOption.POSTED_FIRST -> list.sortedByDescending { viewModel.getSongStatus(it, now) == SongStatus.POSTED }
                 SortOption.ALPHABETICAL -> list.sortedBy { it.title.lowercase() }
             }
-
             list
         }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            
-            // Search & Filter Toggle Bar
+            // Unified Search Toolbar Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.searchQuery.value = it },
-                    placeholder = { Text("Search songs, movies, director, singer...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.searchQuery.value = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
-                            }
-                        }
+                UnifiedSearchToolbar(
+                    query = searchQuery,
+                    onQueryChange = { viewModel.searchQuery.value = it },
+                    placeholder = "Search songs, movies...",
+                    showFiltersPanel = showFiltersPanel,
+                    onFilterToggle = { showFiltersPanel = !showFiltersPanel },
+                    viewMode = viewMode,
+                    onViewModeToggle = { newMode ->
+                        viewMode = newMode
+                        sharedPrefs.edit { putInt("songs_view_mode", newMode.ordinal) }
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("songs_search_input"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    testTag = "songs_search_input"
                 )
-
-                IconButton(
-                    onClick = { showFiltersPanel = !showFiltersPanel },
-                    modifier = Modifier
-                        .background(
-                            if (showFiltersPanel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(12.dp)
-                        )
-                        .size(56.dp)
-                ) {
-                    Icon(
-                        imageVector = if (showFiltersPanel) Icons.Default.FilterListOff else Icons.Default.FilterList,
-                        contentDescription = "Toggle Filters",
-                        tint = if (showFiltersPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
-            // Filters & Sort Expandable Card Panel
-            AnimatedVisibility(
-                visible = showFiltersPanel,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Filters & Sort (Panel)
+            AnimatedVisibility(visible = showFiltersPanel) {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Date Filter Selection
-                        Text("Posting Date", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Filter by Status", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                             DateFilter.entries.forEach { filter ->
-                                FilterChip(
-                                    selected = dateFilter == filter,
-                                    onClick = { dateFilter = filter },
-                                    label = { Text(filter.displayName, fontSize = 11.sp) }
-                                )
+                                FilterChip(selected = dateFilter == filter, onClick = { dateFilter = filter }, label = { Text(filter.displayName, fontSize = 11.sp) })
                             }
                         }
 
-                        // Sort Selection
                         Text("Sort By", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                             SortOption.entries.forEach { option ->
-                                FilterChip(
-                                    selected = sortBy == option,
-                                    onClick = { sortBy = option },
-                                    label = { Text(option.displayName, fontSize = 11.sp) }
-                                )
+                                FilterChip(selected = sortBy == option, onClick = { sortBy = option }, label = { Text(option.displayName, fontSize = 11.sp) })
+                            }
+                        }
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                FilterDropdown(label = "Language", selectedOption = selectedLanguage, options = languagesList, onOptionSelected = { selectedLanguage = it })
+                            }
+                            Box(modifier = Modifier.weight(1f)) {
+                                FilterDropdown(label = "Singer", selectedOption = selectedSinger, options = singersList, onOptionSelected = { selectedSinger = it })
                             }
                         }
 
-                        // Metadata filters (Drop-downs)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Box(modifier = Modifier.weight(1f)) {
-                                FilterDropdown(
-                                    label = "Language",
-                                    selectedOption = selectedLanguage,
-                                    options = languagesList,
-                                    onOptionSelected = { selectedLanguage = it }
-                                )
+                                FilterDropdown(label = "Movie", selectedOption = selectedMovie, options = moviesList, onOptionSelected = { selectedMovie = it })
                             }
-                            Box(modifier = Modifier.weight(1f)) {
-                                FilterDropdown(
-                                    label = "Singer",
-                                    selectedOption = selectedSinger,
-                                    options = singersList,
-                                    onOptionSelected = { selectedSinger = it }
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                FilterDropdown(
-                                    label = "Movie",
-                                    selectedOption = selectedMovie,
-                                    options = moviesList,
-                                    onOptionSelected = { selectedMovie = it }
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .align(Alignment.CenterVertically)
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        dateFilter = DateFilter.ALL
-                                        sortBy = SortOption.NEWEST
-                                        selectedLanguage = "All"
-                                        selectedSinger = "All"
-                                        selectedMovie = "All"
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
+                            Box(modifier = Modifier.weight(1f).align(Alignment.CenterVertically)) {
+                                TextButton(onClick = { dateFilter = DateFilter.ALL; sortBy = SortOption.NEWEST; selectedLanguage = "All"; selectedSinger = "All"; selectedMovie = "All" }, modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Reset Filters", fontSize = 12.sp)
+                                    Text("Reset Filters")
                                 }
                             }
                         }
@@ -342,193 +273,89 @@ fun SongsScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
-            // Results List
             if (processedSongsList.isEmpty()) {
-                val isActive = searchQuery.isNotEmpty() || dateFilter != DateFilter.ALL || selectedLanguage != "All" || selectedSinger != "All" || selectedMovie != "All"
-                EmptySongsState(
-                    isSearchActive = isActive,
-                    onAddFirst = { showAddDialog = true }
-                )
+                EmptySongsState(isSearchActive = searchQuery.isNotEmpty() || dateFilter != DateFilter.ALL, onAddFirst = { onNavigateToAddEdit(null) })
             } else {
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("songs_lazy_column"),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(processedSongsList, key = { it.id }) { song ->
-                        val isExactDuplicate = remember(allSongs, song) {
-                            allSongs.count { 
-                                it.title.lowercase().trim() == song.title.lowercase().trim() &&
-                                it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
-                                it.singers.lowercase().trim() == song.singers.lowercase().trim()
-                            } > 1
-                        }
-                        SongHistoryCard(
-                            song = song,
-                            isHighlighted = song.id == highlightedSongId,
-                            isDuplicateBadgeVisible = isExactDuplicate,
-                            onEdit = { songToEdit = song },
-                            onDelete = { 
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                songToDelete = song 
+                if (viewMode == ViewMode.LIST) {
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(processedSongsList, key = { it.id }) { song ->
+                            val isExactDuplicate = remember(allSongs, song) {
+                                allSongs.count { 
+                                    it.title.lowercase().trim() == song.title.lowercase().trim() &&
+                                    it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
+                                    it.singers.lowercase().trim() == song.singers.lowercase().trim()
+                                } > 1
                             }
-                        )
+                            SongHistoryCard(
+                                song = song,
+                                status = viewModel.getSongStatus(song, now),
+                                now = now,
+                                isHighlighted = song.id == highlightedSongId,
+                                isDuplicateBadgeVisible = isExactDuplicate,
+                                onEdit = { onNavigateToAddEdit(song) },
+                                onDelete = { songToDelete = song }
+                            )
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        state = lazyGridState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(processedSongsList, key = { it.id }) { song ->
+                            val isExactDuplicate = remember(allSongs, song) {
+                                allSongs.count { 
+                                    it.title.lowercase().trim() == song.title.lowercase().trim() &&
+                                    it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
+                                    it.singers.lowercase().trim() == song.singers.lowercase().trim()
+                                } > 1
+                            }
+                            SongGridCard(
+                                song = song,
+                                status = viewModel.getSongStatus(song, now),
+                                now = now,
+                                isHighlighted = song.id == highlightedSongId,
+                                isDuplicateBadgeVisible = isExactDuplicate,
+                                onEdit = { onNavigateToAddEdit(song) },
+                                onDelete = { songToDelete = song }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Add Post Floating Action Button
-        LargeFloatingActionButton(
-            onClick = { showAddDialog = true },
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = Color.White,
+        CreatorLogFAB(
+            onClick = { onNavigateToAddEdit(null) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)
                 .testTag("add_song_fab"),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Record Song Post")
-        }
-    }
-
-    // Add Song Dialog
-    if (showAddDialog) {
-        SongFormDialog(
-            viewModel = viewModel,
-            onDismiss = { showAddDialog = false },
-            onSaveWithInterception = { title, movie, singers, notes, director, lang, date ->
-                viewModel.checkDuplicateLive(title, movie, singers)
-                pendingSongData = SongPost(
-                    entryNumber = 0,
-                    title = title,
-                    movieName = movie,
-                    singers = singers,
-                    notes = notes,
-                    musicDirector = director,
-                    language = lang,
-                    postDate = date
-                )
-                showDuplicateMatchesDialog = true
-            }
+            contentDescription = "Record Song Post"
         )
     }
 
-    // Edit Song Dialog
-    if (songToEdit != null) {
-        SongFormDialog(
-            viewModel = viewModel,
-            editingSong = songToEdit,
-            onDismiss = { songToEdit = null },
-            onSaveWithInterception = { title, movie, singers, notes, director, lang, date ->
-                songToEdit?.let { oldSong ->
-                    viewModel.checkDuplicateLive(title, movie, singers, oldSong.id)
-                    pendingSongData = SongPost(
-                        id = oldSong.id,
-                        entryNumber = oldSong.entryNumber,
-                        title = title,
-                        movieName = movie,
-                        singers = singers,
-                        notes = notes,
-                        musicDirector = director,
-                        language = lang,
-                        postDate = date
-                    )
-                    showDuplicateMatchesDialog = true
-                }
-            }
-        )
-    }
-
-    // Advanced Grouped Duplicate Confirmation Dialog
-    if (showDuplicateMatchesDialog && pendingSongData != null) {
-        val matches = duplicateMatches
-        
-        if (matches.isEmpty) {
-            // No matches found after logic ran (should not usually happen due to checkDuplicateLive, but safety first)
-            val pending = pendingSongData!!
-            if (pending.id == 0) {
-                viewModel.addSongPost(pending.title, pending.movieName, pending.singers, pending.notes, pending.musicDirector, pending.language, pending.postDate)
-                showAddDialog = false
-            } else {
-                viewModel.updateSongPost(pending.id, pending.entryNumber, pending.title, pending.movieName, pending.singers, pending.notes, pending.musicDirector, pending.language, pending.postDate)
-                songToEdit = null
-            }
-            showDuplicateMatchesDialog = false
-            pendingSongData = null
-        } else {
-            GroupedDuplicateDialog(
-                matches = matches,
-                onDismiss = { 
-                    showDuplicateMatchesDialog = false
-                    pendingSongData = null
-                },
-                onViewExisting = { targetSong ->
-                    showDuplicateMatchesDialog = false
-                    if (pendingSongData?.id == 0) showAddDialog = false else songToEdit = null
-                    pendingSongData = null
-                    
-                    scope.launch {
-                        // Priority scroll
-                        val index = processedSongsList.indexOfFirst { it.id == targetSong.id }
-                        if (index != -1) {
-                            lazyListState.animateScrollToItem(index)
-                            highlightedSongId = targetSong.id
-                        }
-                    }
-                },
-                onEditNew = {
-                    showDuplicateMatchesDialog = false
-                    // Stay in Add/Edit dialog
-                },
-                onSaveAnyway = {
-                    val pending = pendingSongData!!
-                    if (pending.id == 0) {
-                        viewModel.addSongPost(pending.title, pending.movieName, pending.singers, pending.notes, pending.musicDirector, pending.language, pending.postDate)
-                        showAddDialog = false
-                    } else {
-                        viewModel.updateSongPost(pending.id, pending.entryNumber, pending.title, pending.movieName, pending.singers, pending.notes, pending.musicDirector, pending.language, pending.postDate)
-                        songToEdit = null
-                    }
-                    showDuplicateMatchesDialog = false
-                    pendingSongData = null
-                }
-            )
-        }
-    }
-
-    // Delete Song Confirmation Dialog
     if (songToDelete != null) {
         AlertDialog(
             onDismissRequest = { songToDelete = null },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    Text("Delete Song?", fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Text("Are you sure you want to permanently delete this song?")
-            },
+            title = { Text("Delete Song?") },
+            text = { Text("Are you sure you want to permanently delete this song?") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        songToDelete?.let { viewModel.deleteSongPost(it) }
-                        songToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
+                Button(onClick = { viewModel.deleteSongPost(songToDelete!!); songToDelete = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                     Text("Delete")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { songToDelete = null }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { songToDelete = null }) { Text("Cancel") }
             }
         )
     }
@@ -545,14 +372,23 @@ fun GroupedDuplicateDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
                 Text("Duplicate Song Detected", fontWeight = FontWeight.Bold)
             }
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
@@ -562,13 +398,25 @@ fun GroupedDuplicateDialog(
                 )
 
                 if (matches.exact.isNotEmpty()) {
-                    MatchSection(title = "Exact Match", color = Color(0xFF43A047), songs = matches.exact)
+                    MatchSection(
+                        title = "Exact Match",
+                        color = Color(0xFF43A047),
+                        songs = matches.exact
+                    )
                 }
                 if (matches.possible.isNotEmpty()) {
-                    MatchSection(title = "Possible Duplicate", color = Color(0xFFFB8C00), songs = matches.possible)
+                    MatchSection(
+                        title = "Possible Duplicate",
+                        color = Color(0xFFFB8C00),
+                        songs = matches.possible
+                    )
                 }
                 if (matches.similar.isNotEmpty()) {
-                    MatchSection(title = "Similar Song", color = Color(0xFF1E88E5), songs = matches.similar)
+                    MatchSection(
+                        title = "Similar Song",
+                        color = Color(0xFF1E88E5),
+                        songs = matches.similar
+                    )
                 }
             }
         },
@@ -577,13 +425,15 @@ fun GroupedDuplicateDialog(
                 Button(
                     onClick = onSaveAnyway,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Save Anyway")
                 }
                 OutlinedButton(
                     onClick = onEditNew,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Edit New Entry")
                 }
@@ -592,7 +442,11 @@ fun GroupedDuplicateDialog(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = matches.bestMatch != null
                 ) {
-                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Default.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("View Existing")
                 }
@@ -609,15 +463,33 @@ fun GroupedDuplicateDialog(
 @Composable
 fun MatchSection(title: String, color: Color, songs: List<SongPost>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
-            Text(text = title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = color)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(color, CircleShape)
+            )
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = color
+            )
         }
         songs.forEach { song ->
-            val dateStr = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
+            val dateStr = if (song.postDate != null) {
+                SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
+            } else "Draft"
+            
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(8.dp)
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(10.dp)) {
                     Text(
@@ -625,112 +497,55 @@ fun MatchSection(title: String, color: Color, songs: List<SongPost>) {
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
                     )
-                    Text("Movie: ${song.movieName}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Singer: ${song.singers}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Posted: $dateStr", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = "Movie: ${song.movieName}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (song.singers.isNotBlank()) {
+                        Text(
+                            text = "Singer: ${song.singers}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = "Date: $dateStr",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
     }
 }
-    @OptIn(ExperimentalMaterial3Api::class)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilterDropdown(
-    label: String,
-    selectedOption: String,
-    options: List<String>,
-    onOptionSelected: (String) -> Unit
-) {
+fun FilterDropdown(label: String, selectedOption: String, options: List<String>, onOptionSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded }
-    ) {
-        OutlinedTextField(
-            readOnly = true,
-            value = selectedOption,
-            onValueChange = {},
-            label = { Text(label, fontSize = 11.sp) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp)
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("All") },
-                onClick = {
-                    onOptionSelected("All")
-                    expanded = false
-                }
-            )
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        onOptionSelected(option)
-                        expanded = false
-                    }
-                )
-            }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(readOnly = true, value = selectedOption, onValueChange = {}, label = { Text(label, fontSize = 11.sp) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }, modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All") }, onClick = { onOptionSelected("All"); expanded = false })
+            options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onOptionSelected(option); expanded = false }) }
         }
     }
 }
 
 @Composable
 fun EmptySongsState(isSearchActive: Boolean, onAddFirst: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.testTag("empty_songs_state")
-        ) {
-            Surface(
-                modifier = Modifier.size(100.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                shape = CircleShape
-            ) {
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Surface(modifier = Modifier.size(100.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), shape = CircleShape) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (isSearchActive) Icons.Default.SearchOff else Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(48.dp)
-                    )
+                    Icon(imageVector = if (isSearchActive) Icons.Default.SearchOff else Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                 }
             }
-            Text(
-                text = if (isSearchActive) "No results found" else "No Songs Yet",
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = if (isSearchActive) "Try resetting filters or changing your query to find what you're looking for." 
-                       else "Start tracking your Instagram songs history to prevent double-posting. Your library is waiting!",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            if (!isSearchActive) {
-                Button(
-                    onClick = onAddFirst,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Add First Song")
-                }
-            }
+            Text(text = if (isSearchActive) "No Results" else "No Songs Yet", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
+            Text(text = if (isSearchActive) "Try different keywords." else "Start tracking your Instagram songs history.", textAlign = TextAlign.Center)
+            if (!isSearchActive) Button(onClick = onAddFirst) { Text("Add First Song") }
         }
     }
 }
@@ -738,17 +553,18 @@ fun EmptySongsState(isSearchActive: Boolean, onAddFirst: () -> Unit) {
 @Composable
 fun SongHistoryCard(
     song: SongPost,
+    status: SongStatus?,
+    now: Long,
     isHighlighted: Boolean = false,
     isDuplicateBadgeVisible: Boolean = false,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val formattedDate = remember(song.postDate) {
-        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(song.postDate))
-    }
+    val dateStr = if (song.postDate != null) {
+        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
+    } else "No Date"
 
     val infiniteTransition = rememberInfiniteTransition(label = "highlight")
-    val haptic = LocalHapticFeedback.current
     val highlightAlpha by infiniteTransition.animateFloat(
         initialValue = 0.3f,
         targetValue = 0.7f,
@@ -759,458 +575,96 @@ fun SongHistoryCard(
         label = "alpha"
     )
 
+    val haptic = LocalHapticFeedback.current
+
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (isHighlighted) {
-                    Modifier.border(
-                        width = 2.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = highlightAlpha),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                } else Modifier
-            )
-            .testTag("song_item_card_${song.id}"),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        shape = RoundedCornerShape(12.dp)
+        modifier = Modifier.fillMaxWidth().then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)) else Modifier),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                        RoundedCornerShape(10.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
+            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = String.format(Locale.US, "#%04d", song.entryNumber),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                    )
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (isDuplicateBadgeVisible) {
-                            AssistChip(
-                                onClick = {},
-                                label = { Text("Duplicate", fontSize = 10.sp) },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    labelColor = MaterialTheme.colorScheme.error
-                                ),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-                                ),
-                                shape = RoundedCornerShape(6.dp),
-                                modifier = Modifier.height(20.dp)
-                            )
-                        }
-
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "Posted",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusBadge(status)
+                    if (isDuplicateBadgeVisible) {
+                        Surface(color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))) {
+                            Text("Duplicate", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
                         }
                     }
+                    Text(text = "#${String.format(Locale.US, "%04d", song.entryNumber)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = song.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "Movie: ${song.movieName}",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (song.singers.isNotBlank()) {
-                    Text(
-                        text = "Singers: ${song.singers}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (song.musicDirector.isNotBlank()) {
-                    Text(
-                        text = "Music Director: ${song.musicDirector}",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (song.language.isNotBlank()) {
-                    Text(
-                        text = "Language: ${song.language}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.secondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (song.notes.isNotBlank()) {
-                    Text(
-                        text = "Notes: ${song.notes}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(
-                    text = "Posted on: $formattedDate",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(text = song.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = "Movie: ${song.movieName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (song.singers.isNotBlank()) Text(text = "Singers: ${song.singers}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (song.musicDirector.isNotBlank()) Text(text = "Music Director: ${song.musicDirector}", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.tertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (song.language.isNotBlank()) Text(text = "Language: ${song.language}", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (song.notes.isNotBlank()) Text(text = "Notes: ${song.notes}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = dateStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
             }
-
             Row {
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit song",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDelete()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete record",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
+                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onDelete() }) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SongFormDialog(
-    viewModel: TrackerViewModel,
-    editingSong: SongPost? = null,
-    onDismiss: () -> Unit,
-    onSaveWithInterception: (title: String, movie: String, singers: String, notes: String, director: String, lang: String, date: Long) -> Unit
+fun SongGridCard(
+    song: SongPost,
+    status: SongStatus?,
+    now: Long,
+    isHighlighted: Boolean = false,
+    isDuplicateBadgeVisible: Boolean = false,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    var title by remember { mutableStateOf(editingSong?.title ?: "") }
-    var movieName by remember { mutableStateOf(editingSong?.movieName ?: "") }
-    var singers by remember { mutableStateOf(editingSong?.singers ?: "") }
-    var notes by remember { mutableStateOf(editingSong?.notes ?: "") }
-    var musicDirector by remember { mutableStateOf(editingSong?.musicDirector ?: "") }
-    var language by remember { mutableStateOf(editingSong?.language ?: "") }
-    var postDate by remember { mutableLongStateOf(editingSong?.postDate ?: System.currentTimeMillis()) }
+    val dateStr = if (song.postDate != null) {
+        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
+    } else "No Date"
 
-    var showDatePicker by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
-
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = postDate
+    val infiniteTransition = rememberInfiniteTransition(label = "highlight")
+    val highlightAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
     )
 
-    val timePickerState = rememberTimePickerState(
-        initialHour = Calendar.getInstance().apply { timeInMillis = postDate }.get(Calendar.HOUR_OF_DAY),
-        initialMinute = Calendar.getInstance().apply { timeInMillis = postDate }.get(Calendar.MINUTE)
-    )
+    val haptic = LocalHapticFeedback.current
 
-    val duplicateMatches by viewModel.duplicateMatches.collectAsState()
-
-    LaunchedEffect(title, movieName, singers) {
-        viewModel.checkDuplicateLive(title, movieName, singers, editingSong?.id ?: 0)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { viewModel.clearDuplicateWarning() }
-    }
-
-    val formattedSelectedDate = remember(postDate) {
-        SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(postDate))
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (editingSong == null) "Record Daily Song Post" else "Edit Song Post",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Live warning banner (for typing visual support)
-                AnimatedVisibility(
-                    visible = !duplicateMatches.isEmpty,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
-                    val topLevel = duplicateMatches.topLevel
-                    val color = when (topLevel) {
-                        MatchLevel.EXACT -> MaterialTheme.colorScheme.error
-                        MatchLevel.POSSIBLE -> Color(0xFFFB8C00)
-                        MatchLevel.SIMILAR -> Color(0xFF1E88E5)
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                    val label = when (topLevel) {
-                        MatchLevel.EXACT -> "EXACT MATCH DETECTED"
-                        MatchLevel.POSSIBLE -> "POSSIBLE DUPLICATE"
-                        MatchLevel.SIMILAR -> "SIMILAR SONG RECORDED"
-                        else -> ""
-                    }
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f)),
-                        border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = color,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = color
-                                )
-                                Text(
-                                    text = "Tap 'Save' to review matching entries.",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Title Input
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Song Title *") },
-                    placeholder = { Text("e.g., Starboy") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_title"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Movie Name Input
-                OutlinedTextField(
-                    value = movieName,
-                    onValueChange = { movieName = it },
-                    label = { Text("Movie / Album Name *") },
-                    placeholder = { Text("e.g., Starboy Album") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_movie"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Singers Input
-                OutlinedTextField(
-                    value = singers,
-                    onValueChange = { singers = it },
-                    label = { Text("Singers") },
-                    placeholder = { Text("e.g., The Weeknd, Daft Punk") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_singers"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Music Director Input
-                OutlinedTextField(
-                    value = musicDirector,
-                    onValueChange = { musicDirector = it },
-                    label = { Text("Music Director") },
-                    placeholder = { Text("e.g., A.R. Rahman") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_music_director"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Language Input
-                OutlinedTextField(
-                    value = language,
-                    onValueChange = { language = it },
-                    label = { Text("Language") },
-                    placeholder = { Text("e.g., English, Tamil") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_language"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Music Details/Platform/Notes
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes / Instagram details") },
-                    placeholder = { Text("e.g., Used 15s audio loop, trending reel") },
-                    modifier = Modifier.fillMaxWidth().testTag("song_form_notes"),
-                    minLines = 2,
-                    maxLines = 4,
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                // Posting Time
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = formattedSelectedDate,
-                        onValueChange = {},
-                        label = { Text("Posting Date & Time") },
-                        readOnly = true,
-                        trailingIcon = {
-                            Icon(Icons.Default.EditCalendar, contentDescription = "Pick date and time")
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("song_form_date"),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .clickable { showDatePicker = true }
-                    )
-                }
+    Card(
+        modifier = Modifier.fillMaxWidth().then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)) else Modifier),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                StatusBadge(status)
+                Text(text = "#${String.format(Locale.US, "%04d", song.entryNumber)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
             }
-        },
-        confirmButton = {
-            val haptic = LocalHapticFeedback.current
-            Button(
-                onClick = { 
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSaveWithInterception(title, movieName, singers, notes, musicDirector, language, postDate) 
-                },
-                enabled = title.isNotBlank() && movieName.isNotBlank(),
-                modifier = Modifier.testTag("song_form_save_button")
-            ) {
-                Text("Save Record")
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(text = song.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = song.movieName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (song.singers.isNotBlank()) Text(text = song.singers, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (isDuplicateBadgeVisible) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Duplicate", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 10.sp)
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = dateStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onDelete() }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
             }
         }
-    )
-
-    if (showDatePicker) {
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDatePicker = false
-                    showTimePicker = true
-                }) {
-                    Text("OK")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
-                    Text("Cancel")
-                }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
-
-    if (showTimePicker) {
-        AlertDialog(
-            onDismissRequest = { showTimePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    val selectedDate = datePickerState.selectedDateMillis ?: postDate
-                    val cal = Calendar.getInstance().apply {
-                        val selectedCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                            timeInMillis = selectedDate
-                        }
-                        set(Calendar.YEAR, selectedCal.get(Calendar.YEAR))
-                        set(Calendar.MONTH, selectedCal.get(Calendar.MONTH))
-                        set(Calendar.DAY_OF_MONTH, selectedCal.get(Calendar.DAY_OF_MONTH))
-                        set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                        set(Calendar.MINUTE, timePickerState.minute)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                    postDate = cal.timeInMillis
-                    showTimePicker = false
-                }) {
-                    Text("OK")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) {
-                    Text("Cancel")
-                }
-            },
-            text = {
-                TimePicker(state = timePickerState)
-            }
-        )
     }
 }

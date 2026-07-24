@@ -4,12 +4,18 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +28,7 @@ import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -30,6 +37,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -38,9 +46,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
 import com.voiceofmelody.songdailytracker.ui.IdeaFilter
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.ViewMode
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -75,68 +85,89 @@ fun IdeaVaultScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
     val searchQuery by viewModel.ideasSearchQuery.collectAsState()
     val currentFilter by viewModel.ideasFilter.collectAsState()
     val haptic = LocalHapticFeedback.current
+    
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences("vof_settings", android.content.Context.MODE_PRIVATE) }
+    var viewMode by rememberSaveable { 
+        mutableStateOf(ViewMode.entries[sharedPrefs.getInt("planner_view_mode", 0)]) 
+    }
+    var showFiltersPanel by rememberSaveable { mutableStateOf(true) }
 
-    var showAddDialog by remember { mutableStateOf(value = false) }
+    val lazyGridState = rememberLazyGridState()
+
+    var showAddDialog by remember { mutableStateOf(false) }
     var ideaToEdit by remember { mutableStateOf<IdeaVaultEntry?>(null) }
     var ideaToDelete by remember { mutableStateOf<IdeaVaultEntry?>(null) }
 
-    // Optimization: Filter logic already handled in ViewModel, but we can wrap it if needed.
-    // Actually viewModel.searchedIdeas is already a state flow, so it's optimized.
-
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.ideasSearchQuery.value = it },
-                placeholder = { Text("Search ideas, categories...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.ideasSearchQuery.value = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = null)
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .testTag("ideas_search_input"),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            // Filter Chips
+            // Unified Search Toolbar Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IdeaFilter.entries.forEach { filter ->
-                    val count = when (filter) {
-                        IdeaFilter.ALL -> allIdeas.size
-                        IdeaFilter.PENDING -> allIdeas.count { !it.isPosted }
-                        IdeaFilter.POSTED -> allIdeas.count { it.isPosted }
+                UnifiedSearchToolbar(
+                    query = searchQuery,
+                    onQueryChange = { viewModel.ideasSearchQuery.value = it },
+                    placeholder = "Search ideas, categories...",
+                    showFiltersPanel = showFiltersPanel,
+                    onFilterToggle = { showFiltersPanel = !showFiltersPanel },
+                    viewMode = viewMode,
+                    onViewModeToggle = { newMode ->
+                        viewMode = newMode
+                        sharedPrefs.edit { putInt("planner_view_mode", newMode.ordinal) }
+                    },
+                    testTag = "ideas_search_input"
+                )
+            }
+
+            // Controls Row (Filter Chips & View Mode Toggle)
+            AnimatedVisibility(visible = showFiltersPanel) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Filter Chips (Scrollable)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IdeaFilter.entries.forEach { filter ->
+                            val count = when (filter) {
+                                IdeaFilter.ALL -> allIdeas.size
+                                IdeaFilter.PENDING -> allIdeas.count { !it.isPosted }
+                                IdeaFilter.POSTED -> allIdeas.count { it.isPosted }
+                            }
+                            FilterChip(
+                                selected = currentFilter == filter,
+                                onClick = { viewModel.ideasFilter.value = filter },
+                                label = { 
+                                    Text(
+                                        text = "${filter.name.lowercase().replaceFirstChar { it.uppercase() }} ($count)",
+                                        fontSize = 11.sp,
+                                        maxLines = 1
+                                    ) 
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                    selectedLabelColor = MaterialTheme.colorScheme.primary
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
                     }
-                    FilterChip(
-                        selected = currentFilter == filter,
-                        onClick = { viewModel.ideasFilter.value = filter },
-                        label = { 
-                            Text(
-                                text = "${filter.name.lowercase().replaceFirstChar { it.uppercase() }} ($count)",
-                                fontSize = 12.sp
-                            ) 
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            selectedLabelColor = MaterialTheme.colorScheme.primary
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             if (ideas.isEmpty()) {
                 val isActive = searchQuery.isNotEmpty() || currentFilter != IdeaFilter.ALL
@@ -145,36 +176,57 @@ fun IdeaVaultScreen(viewModel: TrackerViewModel, modifier: Modifier = Modifier) 
                     onAddFirst = { showAddDialog = true }
                 )
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(ideas, key = { it.id }) { idea ->
-                        IdeaCard(
-                            idea = idea,
-                            onClick = { ideaToEdit = idea },
-                            onPinToggle = { 
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.togglePin(idea) 
-                            },
-                            onDelete = { ideaToDelete = idea }
-                        )
+                if (viewMode == ViewMode.LIST) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(ideas, key = { it.id }) { idea ->
+                            IdeaCard(
+                                idea = idea,
+                                onClick = { ideaToEdit = idea },
+                                onPinToggle = { 
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.togglePin(idea) 
+                                },
+                                onDelete = { ideaToDelete = idea }
+                            )
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        state = lazyGridState,
+                        modifier = Modifier.fillMaxSize().testTag("planner_grid"),
+                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(ideas, key = { it.id }) { idea ->
+                            IdeaGridCard(
+                                idea = idea,
+                                onClick = { ideaToEdit = idea },
+                                onPinToggle = { 
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.togglePin(idea) 
+                                },
+                                onDelete = { ideaToDelete = idea }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        FloatingActionButton(
+        CreatorLogFAB(
             onClick = { showAddDialog = true },
-            containerColor = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)
-                .testTag("add_idea_fab")
-        ) {
-            Icon(Icons.Default.Add, contentDescription = "Add Idea")
-        }
+                .testTag("add_idea_fab"),
+            contentDescription = "Add Idea"
+        )
     }
 
     if (showAddDialog) {
@@ -255,7 +307,7 @@ fun IdeaCard(
             containerColor = if (idea.color != null) Color(idea.color).copy(alpha = 0.25f) 
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -316,7 +368,6 @@ fun IdeaCard(
 
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Status Chips
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (idea.isPosted) {
                     Surface(
@@ -375,6 +426,130 @@ fun IdeaCard(
                         contentDescription = "Delete",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
                         modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IdeaGridCard(
+    idea: IdeaVaultEntry,
+    onClick: () -> Unit,
+    onPinToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateText = remember(idea.updatedAt) {
+        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+        sdf.format(Date(idea.updatedAt))
+    }
+
+    val checkIconScale by animateFloatAsState(
+        targetValue = if (idea.isPosted) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "check_scale"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(if (idea.isPosted) 0.98f else 1.0f)
+            .alpha(if (idea.isPosted) 0.9f else 1.0f)
+            .clickable(onClick = onClick)
+            .testTag("idea_grid_card_${idea.id}"),
+        colors = CardDefaults.cardColors(
+            containerColor = if (idea.color != null) Color(idea.color).copy(alpha = 0.25f) 
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                if (idea.category != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = idea.category,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                
+                IconButton(onClick = onPinToggle, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = if (idea.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = "Pin",
+                        tint = if (idea.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = idea.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textDecoration = if (idea.isPosted) TextDecoration.LineThrough else TextDecoration.None
+            )
+            
+            if (idea.isPosted) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF43A047),
+                        modifier = Modifier.size(14.dp).scale(checkIconScale)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Posted", fontSize = 9.sp, color = Color(0xFF43A047), fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Text("Pending", fontSize = 9.sp, color = Color(0xFFFB8C00), fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = idea.content,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = dateText,
+                    fontSize = 8.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
@@ -477,7 +652,7 @@ fun IdeaFormDialog(
                     label = { Text("Title") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 Column {
@@ -486,7 +661,7 @@ fun IdeaFormDialog(
                         onValueChange = { if (it.length <= 1000) content = it },
                         label = { Text("Idea details...") },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                     Text(
                         text = "${content.length}/1000",
@@ -509,7 +684,7 @@ fun IdeaFormDialog(
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
                         modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                     ExposedDropdownMenu(
                         expanded = categoryExpanded,
@@ -542,7 +717,7 @@ fun IdeaFormDialog(
                         label = { Text("Custom Category Name") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     )
                 }
 

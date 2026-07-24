@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Voice Of Melody"
+rootProject.name = "CreatorLog"
 
 include(":app")

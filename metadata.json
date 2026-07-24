@@ -1,5 +1,6 @@
 {
-  "name": "Voice Of Melody",
+  "name": "CreatorLog",
+  "version": "1.2.0",
   "description": "Your personal Instagram song posting manager and promotion income tracker.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

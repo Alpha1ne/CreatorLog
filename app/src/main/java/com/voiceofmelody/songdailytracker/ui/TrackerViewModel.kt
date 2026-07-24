@@ -24,7 +24,11 @@ import java.util.*
 
 enum class IdeaFilter { ALL, PENDING, POSTED }
 
+enum class ViewMode { LIST, GRID }
+
 enum class MatchLevel { EXACT, POSSIBLE, SIMILAR }
+
+enum class SongStatus { SCHEDULED, POSTED }
 
 data class DuplicateGroup(
     val exact: List<SongPost> = emptyList(),
@@ -45,22 +49,63 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository: TrackerRepository
 
-    init {
-        val database = AppDatabase.getDatabase(application)
-        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao())
-    }
+    // Time tracking for dynamic status
+    private val _currentTime = MutableStateFlow(System.currentTimeMillis())
+    val currentTime: StateFlow<Long> = _currentTime.asStateFlow()
+
+    // Raw streams from DB
+    val allSongPosts: StateFlow<List<SongPost>>
+    val allIdeas: StateFlow<List<IdeaVaultEntry>>
 
     // Search Query States
     val searchQuery = MutableStateFlow("")
     val ideasSearchQuery = MutableStateFlow("")
     val ideasFilter = MutableStateFlow(IdeaFilter.ALL)
 
-    // Raw streams from DB
-    val allSongPosts: StateFlow<List<SongPost>> = repository.allSongPosts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    init {
+        val database = AppDatabase.getDatabase(application)
+        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao())
+        
+        allSongPosts = repository.allSongPosts
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allIdeas: StateFlow<List<IdeaVaultEntry>> = repository.allIdeas
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        allIdeas = repository.allIdeas
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        // Setup strategic time refresh for content scheduling
+        viewModelScope.launch {
+            allSongPosts.collect { songs ->
+                updateCurrentTime()
+                scheduleNextRefresh(songs)
+            }
+        }
+    }
+
+    private fun updateCurrentTime() {
+        _currentTime.value = System.currentTimeMillis()
+    }
+
+    private var nextRefreshJob: kotlinx.coroutines.Job? = null
+    private fun scheduleNextRefresh(songs: List<SongPost>) {
+        nextRefreshJob?.cancel()
+        val now = System.currentTimeMillis()
+        val nextScheduledTime = songs
+            .mapNotNull { it.postDate }
+            .filter { it > now }
+            .minOrNull()
+
+        if (nextScheduledTime != null) {
+            val delayMillis = nextScheduledTime - now + 1000 // Add 1s buffer
+            nextRefreshJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(delayMillis)
+                updateCurrentTime()
+            }
+        }
+    }
+
+    fun onResume() {
+        updateCurrentTime()
+    }
 
     // Reactive list of songs matching the search query
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -121,9 +166,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             }
             
             _duplicateMatches.value = DuplicateGroup(
-                exact = exact.sortedByDescending { it.postDate },
-                possible = possible.sortedByDescending { it.postDate },
-                similar = similar.sortedByDescending { it.postDate }
+                exact = exact.sortedByDescending { it.postDate ?: 0L },
+                possible = possible.sortedByDescending { it.postDate ?: 0L },
+                similar = similar.sortedByDescending { it.postDate ?: 0L }
             )
         }
     }
@@ -133,7 +178,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Song CRUD ---
-    fun addSongPost(title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long) {
+    fun addSongPost(title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?) {
         viewModelScope.launch {
             val maxNum = repository.getMaxEntryNumber()
             repository.insertSongPost(
@@ -145,13 +190,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     notes = notes.trim(),
                     musicDirector = musicDirector.trim(),
                     language = language.trim(),
-                    postDate = postDate
+                    postDate = postDate?.let { normalizeDateToDayStart(it) },
+                    isPostedConfirmed = false // Legacy field, not used in v1.2 logic
                 )
             )
         }
     }
 
-    fun updateSongPost(id: Int, entryNumber: Long, title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long) {
+    fun updateSongPost(id: Int, entryNumber: Long, title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?) {
         viewModelScope.launch {
             repository.updateSongPost(
                 SongPost(
@@ -163,12 +209,13 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     notes = notes.trim(),
                     musicDirector = musicDirector.trim(),
                     language = language.trim(),
-                    postDate = postDate
+                    postDate = postDate?.let { normalizeDateToDayStart(it) },
+                    isPostedConfirmed = false // Legacy field
                 )
             )
         }
     }
-
+    
     fun deleteSongPost(songPost: SongPost) {
         viewModelScope.launch {
             repository.deleteSongPost(songPost)
@@ -224,33 +271,50 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Dashboard Stats Calculations ---
-    val statsState = combine(allSongPosts, allIdeas) { songs, ideas ->
-        calculateStats(songs, ideas)
+    val statsState = combine(allSongPosts, allIdeas, currentTime) { songs, ideas, now ->
+        calculateStats(songs, ideas, now)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStats())
 
-    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>): DashboardStats {
+    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>, now: Long): DashboardStats {
         val totalSongs = songs.size
+        val totalIdeas = ideas.size
+        
+        // Dynamic Status Counts
+        var postedCount = 0
+        var scheduledCount = 0
+        
+        songs.forEach { song ->
+            val status = getSongStatus(song, now)
+            when (status) {
+                SongStatus.POSTED -> postedCount++
+                SongStatus.SCHEDULED -> scheduledCount++
+                null -> {}
+            }
+        }
 
-        // Postings today
-        val todayStart = normalizeDateToDayStart(System.currentTimeMillis())
-        val songsPostedToday = songs.count { it.postDate >= todayStart }
+        val completionProgress = if (totalSongs > 0) (postedCount.toFloat() / totalSongs * 100).toInt() else 0
 
-        // Postings in last 7 days
-        val now = System.currentTimeMillis()
+        // Stats for DashboardScreen
+        val todayStart = normalizeDateToDayStart(now)
+        val songsPostedToday = songs.count { 
+            it.postDate != null && it.postDate >= todayStart && it.postDate <= now // Simple today check
+        }
+
         val sevenDaysAgo = now - (7L * 24 * 60 * 60 * 1000)
-        val songsLast7Days = songs.count { it.postDate in sevenDaysAgo..now }
+        val songsLast7Days = songs.count { it.postDate != null && it.postDate in sevenDaysAgo..now }
 
-        // Postings this month
         val calendar = Calendar.getInstance()
         val currentMonth = calendar.get(Calendar.MONTH)
         val currentYear = calendar.get(Calendar.YEAR)
         val songsThisMonth = songs.count {
-            val c = Calendar.getInstance().apply { timeInMillis = it.postDate }
-            c.get(Calendar.MONTH) == currentMonth && c.get(Calendar.YEAR) == currentYear
+            if (it.postDate != null && it.postDate <= now) {
+                val c = Calendar.getInstance().apply { timeInMillis = it.postDate }
+                c.get(Calendar.MONTH) == currentMonth && c.get(Calendar.YEAR) == currentYear
+            } else false
         }
 
-        // Most Posted Singer
         val singerCounts = songs.asSequence()
+            .filter { it.postDate != null && it.postDate <= now }
             .flatMap { it.singers.split(",") }
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -258,27 +322,24 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             .mapValues { it.value.size }
         val mostPostedSinger = singerCounts.maxByOrNull { it.value }?.key ?: "N/A"
 
-        // Most Posted Movie
         val movieCounts = songs.asSequence()
+            .filter { it.postDate != null && it.postDate <= now }
             .map { it.movieName.trim() }
             .filter { it.isNotBlank() }
             .groupBy { it }
             .mapValues { it.value.size }
         val mostPostedMovie = movieCounts.maxByOrNull { it.value }?.key ?: "N/A"
 
-        // Most Used Language
         val languageCounts = songs.asSequence()
+            .filter { it.postDate != null && it.postDate <= now }
             .map { it.language.trim() }
             .filter { it.isNotBlank() }
             .groupBy { it }
             .mapValues { it.value.size }
         val mostUsedLanguage = languageCounts.maxByOrNull { it.value }?.key ?: "N/A"
 
-        // Content Planner Stats
         val pendingIdeas = ideas.count { !it.isPosted }
         val postedIdeas = ideas.count { it.isPosted }
-        val totalIdeas = ideas.size
-        val progress = if (totalIdeas > 0) (postedIdeas.toFloat() / totalIdeas * 100).toInt() else 0
 
         // Duplicate Stats
         val duplicateCount = songs.groupBy { 
@@ -290,18 +351,26 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
         return DashboardStats(
             totalSongs = totalSongs,
+            postedSongsCount = postedCount,
+            scheduledSongsCount = scheduledCount,
+            postingProgress = completionProgress,
+            duplicateSongsCount = duplicateCount,
+            isLibraryEmpty = totalSongs == 0 && totalIdeas == 0,
+            songsPostedToday = songsPostedToday,
             songsLast7Days = songsLast7Days,
             songsThisMonth = songsThisMonth,
-            songsPostedToday = songsPostedToday,
             mostPostedSinger = mostPostedSinger,
             mostPostedMovie = mostPostedMovie,
             mostUsedLanguage = mostUsedLanguage,
             pendingIdeasCount = pendingIdeas,
-            postedIdeasCount = postedIdeas,
-            postingProgress = progress,
-            duplicateSongsCount = duplicateCount,
-            isLibraryEmpty = totalSongs == 0 && totalIdeas == 0
+            postedIdeasCount = postedIdeas
         )
+    }
+    
+    fun getSongStatus(song: SongPost, now: Long): SongStatus? {
+        val date = song.postDate ?: return null
+        val todayStart = normalizeDateToDayStart(now)
+        return if (date <= todayStart) SongStatus.POSTED else SongStatus.SCHEDULED
     }
 
     private fun normalizeDateToDayStart(timestamp: Long): Long {
@@ -329,7 +398,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     put("notes", song.notes)
                     put("musicDirector", song.musicDirector)
                     put("language", song.language)
-                    put("postDate", song.postDate)
+                    put("postDate", song.postDate ?: JSONObject.NULL)
+                    put("isPostedConfirmed", song.isPostedConfirmed)
                 })
             }
             root.put("songs", songsArray)
@@ -359,39 +429,44 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             val root = JSONObject(jsonString)
             if (root.has("songs")) {
                 val songsArray = root.getJSONArray("songs")
-                // Load all songs first to sort them if needed for numbering
                 val songsToImport = mutableListOf<JSONObject>()
                 for (i in 0 until songsArray.length()) {
                     songsToImport.add(songsArray.getJSONObject(i))
                 }
-                // Sort by postDate to maintain chronological numbering during import if missing
-                songsToImport.sortBy { it.optLong("postDate", System.currentTimeMillis()) }
+                songsToImport.sortBy { it.optLong("postDate", 0L) }
 
                 viewModelScope.launch {
                     var currentMax = repository.getMaxEntryNumber()
                     songsToImport.forEach { sObj ->
-                        val title = sObj.getString("title")
-                        val movie = sObj.getString("movieName")
-                        val singers = sObj.optString("singers", "")
-                        if (repository.checkDuplicate(title, movie, singers) == null) {
-                            val importedNum = sObj.optLong("entryNumber", 0L)
-                            val finalNum = if (importedNum > 0) importedNum else {
-                                currentMax++
-                                currentMax
+                        try {
+                            if (!sObj.has("title") || !sObj.has("movieName")) {
+                                android.util.Log.w("TrackerViewModel", "Skipping malformed JSON entry: $sObj")
+                                return@forEach
                             }
-                            // Ensure we don't accidentally reuse if currentMax was lower than some existing entryNumber
-                            // But getMaxEntryNumber should handle it.
-                            repository.insertSongPost(SongPost(
-                                entryNumber = finalNum,
-                                title = title,
-                                movieName = sObj.getString("movieName"),
-                                singers = sObj.optString("singers", ""),
-                                notes = sObj.optString("notes", ""),
-                                musicDirector = sObj.optString("musicDirector", ""),
-                                language = sObj.optString("language", ""),
-                                postDate = sObj.optLong("postDate", System.currentTimeMillis())
-                            ))
-                            if (finalNum > currentMax) currentMax = finalNum
+                            val title = sObj.getString("title")
+                            val movie = sObj.getString("movieName")
+                            val singers = sObj.optString("singers", "")
+                            if (repository.checkDuplicate(title, movie, singers) == null) {
+                                val importedNum = sObj.optLong("entryNumber", 0L)
+                                val finalNum = if (importedNum > 0) importedNum else {
+                                    currentMax++
+                                    currentMax
+                                }
+                                repository.insertSongPost(SongPost(
+                                    entryNumber = finalNum,
+                                    title = title,
+                                    movieName = movie,
+                                    singers = singers,
+                                    notes = sObj.optString("notes", ""),
+                                    musicDirector = sObj.optString("musicDirector", ""),
+                                    language = sObj.optString("language", ""),
+                                    postDate = if (sObj.isNull("postDate")) null else normalizeDateToDayStart(sObj.getLong("postDate")),
+                                    isPostedConfirmed = false
+                                ))
+                                if (finalNum > currentMax) currentMax = finalNum
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("TrackerViewModel", "Error importing JSON song entry", e)
                         }
                     }
                 }
@@ -401,15 +476,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 for (i in 0 until ideasArray.length()) {
                     val iObj = ideasArray.getJSONObject(i)
                     viewModelScope.launch {
-                        repository.insertIdea(IdeaVaultEntry(
-                            title = iObj.getString("title"),
-                            content = iObj.getString("content"),
-                            category = iObj.optString("category", ""),
-                            color = if (iObj.isNull("color")) null else iObj.getLong("color"),
-                            createdAt = iObj.optLong("createdAt", System.currentTimeMillis()),
-                            updatedAt = iObj.optLong("updatedAt", System.currentTimeMillis()),
-                            isPinned = iObj.optBoolean("isPinned", false)
-                        ))
+                        try {
+                            if (!iObj.has("title") || !iObj.has("content")) {
+                                android.util.Log.w("TrackerViewModel", "Skipping malformed JSON idea entry: $iObj")
+                                return@launch
+                            }
+                            repository.insertIdea(IdeaVaultEntry(
+                                title = iObj.getString("title"),
+                                content = iObj.getString("content"),
+                                category = iObj.optString("category", ""),
+                                color = if (iObj.isNull("color")) null else iObj.getLong("color"),
+                                createdAt = iObj.optLong("createdAt", System.currentTimeMillis()),
+                                updatedAt = iObj.optLong("updatedAt", System.currentTimeMillis()),
+                                isPinned = iObj.optBoolean("isPinned", false)
+                            ))
+                        } catch (e: Exception) {
+                            android.util.Log.e("TrackerViewModel", "Error importing JSON idea entry", e)
+                        }
                     }
                 }
             }
@@ -420,7 +503,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     // --- CSV Backup & Export ---
     fun exportBackupCsvSongs(): String {
         val sb = StringBuilder()
-        sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate\n")
+        sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate,isPostedConfirmed\n")
         allSongPosts.value.forEach { song ->
             sb.append("${song.id},")
               .append("${song.entryNumber},")
@@ -430,20 +513,22 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("\"${song.notes.replace("\"", "\"\"")}\",")
               .append("\"${song.musicDirector.replace("\"", "\"\"")}\",")
               .append("\"${song.language.replace("\"", "\"\"")}\",")
-              .append("${song.postDate}\n")
+              .append("${song.postDate ?: ""},")
+              .append("${song.isPostedConfirmed}\n")
         }
         return sb.toString()
     }
 
     fun exportBackupCsvIdeas(): String {
         val sb = StringBuilder()
-        sb.append("id,title,content,category,color,createdAt,updatedAt,isPinned\n")
+        sb.append("id,title,content,category,color,isPosted,createdAt,updatedAt,isPinned\n")
         allIdeas.value.forEach { idea ->
             sb.append("${idea.id},")
               .append("\"${idea.title.replace("\"", "\"\"")}\",")
               .append("\"${idea.content.replace("\"", "\"\"")}\",")
               .append("\"${(idea.category ?: "").replace("\"", "\"\"")}\",")
               .append("${idea.color ?: ""},")
+              .append("${idea.isPosted},")
               .append("${idea.createdAt},")
               .append("${idea.updatedAt},")
               .append("${idea.isPinned}\n")
@@ -457,9 +542,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             val lines = csvString.lines()
             if (lines.size < 2) return false
             
-            // Map header indices
             val header = lines.first().split(",")
             val entryNumIdx = header.indexOf("entryNumber")
+            val isPostedConfirmedIdx = header.indexOf("isPostedConfirmed")
             
             val rowsToImport = mutableListOf<List<String>>()
             for (i in 1 until lines.size) {
@@ -469,42 +554,47 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 if (parts.size >= 3) rowsToImport.add(parts)
             }
             
-            // Sort by postDate (assuming it's at index 8 if entryNumber is present, or 7 if not)
-            // But we should be careful. Standard headers usually have postDate last.
-            // Let's just find the index of title and assume relative positions or just parse normally.
-            
             viewModelScope.launch {
                 var currentMax = repository.getMaxEntryNumber()
                 rowsToImport.forEach { parts ->
-                    val title = parts[if (entryNumIdx != -1) 2 else 1]
-                    val movieName = parts[if (entryNumIdx != -1) 3 else 2]
-                    val singers = if (parts.size > (if (entryNumIdx != -1) 4 else 3)) parts[if (entryNumIdx != -1) 4 else 3] else ""
-                    
-                    if (repository.checkDuplicate(title, movieName, singers) == null) {
-                        val importedNum = if (entryNumIdx != -1) parts[entryNumIdx].toLongOrNull() ?: 0L else 0L
-                        val finalNum = if (importedNum > 0) importedNum else {
-                            currentMax++
-                            currentMax
-                        }
+                    try {
+                        val titleIdx = if (entryNumIdx != -1) 2 else 1
+                        val movieIdx = if (entryNumIdx != -1) 3 else 2
                         
-                        // Parse other fields based on whether entryNumber exists
-                        val notes = if (parts.size > (if (entryNumIdx != -1) 5 else 4)) parts[if (entryNumIdx != -1) 5 else 4] else ""
-                        val musicDirector = if (parts.size > (if (entryNumIdx != -1) 6 else 5)) parts[if (entryNumIdx != -1) 6 else 5] else ""
-                        val language = if (parts.size > (if (entryNumIdx != -1) 7 else 6)) parts[if (entryNumIdx != -1) 7 else 6] else ""
-                        val postDateStr = if (parts.size > (if (entryNumIdx != -1) 8 else 7)) parts[if (entryNumIdx != -1) 8 else 7] else ""
-                        val postDate = postDateStr.toLongOrNull() ?: System.currentTimeMillis()
+                        if (parts.size <= titleIdx || parts.size <= movieIdx) {
+                            android.util.Log.w("TrackerViewModel", "Skipping malformed CSV row: $parts")
+                            return@forEach
+                        }
 
-                        repository.insertSongPost(SongPost(
-                            entryNumber = finalNum,
-                            title = title,
-                            movieName = movieName,
-                            singers = singers,
-                            notes = notes,
-                            musicDirector = musicDirector,
-                            language = language,
-                            postDate = postDate
-                        ))
-                        if (finalNum > currentMax) currentMax = finalNum
+                        val title = parts[titleIdx]
+                        val movieName = parts[movieIdx]
+                        val singers = if (parts.size > (if (entryNumIdx != -1) 4 else 3)) parts[if (entryNumIdx != -1) 4 else 3] else ""
+                        
+                        if (repository.checkDuplicate(title, movieName, singers) == null) {
+                            val importedNum = if (entryNumIdx != -1) parts[entryNumIdx].toLongOrNull() ?: 0L else 0L
+                            val finalNum = if (importedNum > 0) importedNum else {
+                                currentMax++
+                                currentMax
+                            }
+                            
+                            val postDateStr = if (parts.size > (if (entryNumIdx != -1) 8 else 7)) parts[if (entryNumIdx != -1) 8 else 7] else ""
+                            val postDate = postDateStr.toLongOrNull()?.let { normalizeDateToDayStart(it) }
+
+                            repository.insertSongPost(SongPost(
+                                entryNumber = finalNum,
+                                title = title,
+                                movieName = movieName,
+                                singers = singers,
+                                notes = if (parts.size > (if (entryNumIdx != -1) 5 else 4)) parts[if (entryNumIdx != -1) 5 else 4] else "",
+                                musicDirector = if (parts.size > (if (entryNumIdx != -1) 6 else 5)) parts[if (entryNumIdx != -1) 6 else 5] else "",
+                                language = if (parts.size > (if (entryNumIdx != -1) 7 else 6)) parts[if (entryNumIdx != -1) 7 else 6] else "",
+                                postDate = postDate,
+                                isPostedConfirmed = false
+                            ))
+                            if (finalNum > currentMax) currentMax = finalNum
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("TrackerViewModel", "Error importing CSV song row", e)
                     }
                 }
             }
@@ -622,15 +712,17 @@ class TrackerViewModelFactory(private val application: Application) : ViewModelP
 
 data class DashboardStats(
     val totalSongs: Int = 0,
+    val postedSongsCount: Int = 0,
+    val scheduledSongsCount: Int = 0,
+    val postingProgress: Int = 0,
+    val duplicateSongsCount: Int = 0,
+    val isLibraryEmpty: Boolean = true,
+    val songsPostedToday: Int = 0,
     val songsLast7Days: Int = 0,
     val songsThisMonth: Int = 0,
-    val songsPostedToday: Int = 0,
     val mostPostedSinger: String = "N/A",
     val mostPostedMovie: String = "N/A",
     val mostUsedLanguage: String = "N/A",
     val pendingIdeasCount: Int = 0,
-    val postedIdeasCount: Int = 0,
-    val postingProgress: Int = 0,
-    val duplicateSongsCount: Int = 0,
-    val isLibraryEmpty: Boolean = true
+    val postedIdeasCount: Int = 0
 )

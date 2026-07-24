@@ -45,6 +45,7 @@ import com.voiceofmelody.songdailytracker.ui.screens.DashboardScreen
 import com.voiceofmelody.songdailytracker.ui.screens.IdeaVaultScreen
 import com.voiceofmelody.songdailytracker.ui.screens.SettingsScreen
 import com.voiceofmelody.songdailytracker.ui.screens.SongsScreen
+import com.voiceofmelody.songdailytracker.ui.screens.AddEditSongScreen
 import com.voiceofmelody.songdailytracker.ui.theme.InstagramCoral
 import com.voiceofmelody.songdailytracker.ui.theme.MyApplicationTheme
 import com.voiceofmelody.songdailytracker.util.openInstagramApp
@@ -76,7 +77,7 @@ class MainActivity : ComponentActivity() {
             }
 
             MyApplicationTheme(darkTheme = useDarkTheme) {
-                MainAppScreen(
+                MainAppContainer(
                     themeMode = themeMode,
                     onThemeModeChanged = { newMode ->
                         themeMode = newMode
@@ -86,6 +87,12 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+sealed class AppDestination {
+    object Main : AppDestination()
+    object Settings : AppDestination()
+    data class AddEditSong(val song: com.voiceofmelody.songdailytracker.data.model.SongPost? = null) : AppDestination()
 }
 
 enum class TrackerTab(
@@ -116,95 +123,121 @@ enum class TrackerTab(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppScreen(
+fun MainAppContainer(
     themeMode: Int,
     onThemeModeChanged: (Int) -> Unit
 ) {
     val appContext = LocalContext.current.applicationContext as android.app.Application
-    val context = LocalContext.current
     val viewModel: TrackerViewModel = viewModel(
         factory = TrackerViewModelFactory(appContext)
     )
 
+    var currentDestination by remember { mutableStateOf<AppDestination>(AppDestination.Main) }
     var currentTab by remember { mutableStateOf(TrackerTab.DASHBOARD) }
-    var isSettingsOpen by remember { mutableStateOf(false) }
 
-    if (isSettingsOpen) {
-        SettingsScreen(
-            onBack = { isSettingsOpen = false },
-            themeMode = themeMode,
-            onThemeModeChanged = onThemeModeChanged,
-            viewModel = viewModel
-        )
-    } else {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Voice Of Melody",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 19.sp,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Text(
-                                text = "Song Daily Tracker",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = { 
-                                openInstagramApp(context) 
-                            }
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_instagram),
-                                contentDescription = "Open Instagram",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { isSettingsOpen = true }, modifier = Modifier.testTag("settings_button")) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
+    when (val destination = currentDestination) {
+        is AppDestination.Main -> {
+            MainAppScreen(
+                viewModel = viewModel,
+                currentTab = currentTab,
+                onTabSelected = { currentTab = it },
+                onNavigateToSettings = { currentDestination = AppDestination.Settings },
+                onNavigateToAddEditSong = { currentDestination = AppDestination.AddEditSong(it) }
+            )
+        }
+        is AppDestination.Settings -> {
+            SettingsScreen(
+                onBack = { currentDestination = AppDestination.Main },
+                themeMode = themeMode,
+                onThemeModeChanged = onThemeModeChanged,
+                viewModel = viewModel
+            )
+        }
+        is AppDestination.AddEditSong -> {
+            AddEditSongScreen(
+                viewModel = viewModel,
+                editingSong = destination.song,
+                onBack = { currentDestination = AppDestination.Main }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainAppScreen(
+    viewModel: TrackerViewModel,
+    currentTab: TrackerTab,
+    onTabSelected: (TrackerTab) -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToAddEditSong: (com.voiceofmelody.songdailytracker.data.model.SongPost?) -> Unit
+) {
+    val context = LocalContext.current
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "CreatorLog",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 20.sp,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = { 
+                            openInstagramApp(context) 
+                        }
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_instagram),
+                            contentDescription = "Open Instagram",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings, modifier = Modifier.testTag("settings_button")) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
                 )
-            },
-            bottomBar = {
-                FloatingNavigationBar(
-                    currentTab = currentTab,
-                    onTabSelected = { currentTab = it }
+            )
+        },
+        bottomBar = {
+            FloatingNavigationBar(
+                currentTab = currentTab,
+                onTabSelected = onTabSelected
+            )
+        },
+        contentWindowInsets = WindowInsets.safeDrawing
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            when (currentTab) {
+                TrackerTab.DASHBOARD -> DashboardScreen(
+                    viewModel = viewModel,
+                    onNavigateToAddEdit = { onNavigateToAddEditSong(null) }
                 )
-            },
-            contentWindowInsets = WindowInsets.safeDrawing
-        ) { innerPadding ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                when (currentTab) {
-                    TrackerTab.DASHBOARD -> DashboardScreen(viewModel = viewModel)
-                    TrackerTab.SONGS -> SongsScreen(viewModel = viewModel)
-                    TrackerTab.PLANNER -> IdeaVaultScreen(viewModel = viewModel)
-                }
+                TrackerTab.SONGS -> SongsScreen(
+                    viewModel = viewModel,
+                    onNavigateToAddEdit = onNavigateToAddEditSong
+                )
+                TrackerTab.PLANNER -> IdeaVaultScreen(viewModel = viewModel)
             }
         }
     }
