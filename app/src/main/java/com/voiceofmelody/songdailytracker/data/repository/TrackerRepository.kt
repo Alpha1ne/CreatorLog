@@ -2,16 +2,20 @@ package com.voiceofmelody.songdailytracker.data.repository
 
 import com.voiceofmelody.songdailytracker.data.local.SongPostDao
 import com.voiceofmelody.songdailytracker.data.local.IdeaVaultDao
+import com.voiceofmelody.songdailytracker.data.local.ReminderDao
 import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
 import com.voiceofmelody.songdailytracker.data.model.SongPost
+import com.voiceofmelody.songdailytracker.data.model.Reminder
 import kotlinx.coroutines.flow.Flow
 
 class TrackerRepository(
     private val songPostDao: SongPostDao,
-    private val ideaVaultDao: IdeaVaultDao
+    private val ideaVaultDao: IdeaVaultDao,
+    private val reminderDao: ReminderDao
 ) {
     val allSongPosts: Flow<List<SongPost>> = songPostDao.getAllSongPosts()
     val allIdeas: Flow<List<IdeaVaultEntry>> = ideaVaultDao.getAllIdeas()
+    val allReminders: Flow<List<Reminder>> = reminderDao.getAllReminders()
 
     fun searchSongPosts(query: String): Flow<List<SongPost>> {
         return if (query.isBlank()) {
@@ -54,4 +58,9 @@ class TrackerRepository(
     suspend fun insertIdea(idea: IdeaVaultEntry) = ideaVaultDao.insertIdea(idea)
     suspend fun updateIdea(idea: IdeaVaultEntry) = ideaVaultDao.updateIdea(idea)
     suspend fun deleteIdea(idea: IdeaVaultEntry) = ideaVaultDao.deleteIdea(idea)
+
+    // --- Reminder Operations ---
+    suspend fun insertReminder(reminder: Reminder): Long = reminderDao.insertReminder(reminder)
+    suspend fun updateReminder(reminder: Reminder) = reminderDao.updateReminder(reminder)
+    suspend fun deleteReminder(reminder: Reminder) = reminderDao.deleteReminder(reminder)
 }

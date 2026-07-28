@@ -8,8 +8,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.voiceofmelody.songdailytracker.data.local.AppDatabase
 import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
+import com.voiceofmelody.songdailytracker.data.model.Reminder
+import com.voiceofmelody.songdailytracker.data.model.RepeatType
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.data.repository.TrackerRepository
+import com.voiceofmelody.songdailytracker.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -48,6 +51,7 @@ data class DuplicateGroup(
 class TrackerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: TrackerRepository
+    private val notificationHelper = NotificationHelper(application)
 
     // Time tracking for dynamic status
     private val _currentTime = MutableStateFlow(System.currentTimeMillis())
@@ -56,6 +60,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     // Raw streams from DB
     val allSongPosts: StateFlow<List<SongPost>>
     val allIdeas: StateFlow<List<IdeaVaultEntry>>
+    val allReminders: StateFlow<List<Reminder>>
 
     // Search Query States
     val searchQuery = MutableStateFlow("")
@@ -64,13 +69,16 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao())
+        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao(), database.reminderDao())
         
         allSongPosts = repository.allSongPosts
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
         allIdeas = repository.allIdeas
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+        allReminders = repository.allReminders
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
         // Setup strategic time refresh for content scheduling
         viewModelScope.launch {
@@ -178,7 +186,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- Song CRUD ---
-    fun addSongPost(title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?) {
+    fun addSongPost(title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?, contentLink: String? = null) {
         viewModelScope.launch {
             val maxNum = repository.getMaxEntryNumber()
             repository.insertSongPost(
@@ -191,13 +199,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     musicDirector = musicDirector.trim(),
                     language = language.trim(),
                     postDate = postDate?.let { normalizeDateToDayStart(it) },
+                    contentLink = contentLink?.trim(),
                     isPostedConfirmed = false // Legacy field, not used in v1.2 logic
                 )
             )
         }
     }
 
-    fun updateSongPost(id: Int, entryNumber: Long, title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?) {
+    fun updateSongPost(id: Int, entryNumber: Long, title: String, movieName: String, singers: String, notes: String, musicDirector: String, language: String, postDate: Long?, contentLink: String? = null) {
         viewModelScope.launch {
             repository.updateSongPost(
                 SongPost(
@@ -210,15 +219,28 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     musicDirector = musicDirector.trim(),
                     language = language.trim(),
                     postDate = postDate?.let { normalizeDateToDayStart(it) },
+                    contentLink = contentLink?.trim(),
                     isPostedConfirmed = false // Legacy field
                 )
             )
         }
     }
     
+    private var lastDeletedSong: SongPost? = null
+
     fun deleteSongPost(songPost: SongPost) {
         viewModelScope.launch {
+            lastDeletedSong = songPost
             repository.deleteSongPost(songPost)
+        }
+    }
+
+    fun undoDeleteSong() {
+        lastDeletedSong?.let { song ->
+            viewModelScope.launch {
+                repository.insertSongPost(song)
+                lastDeletedSong = null
+            }
         }
     }
 
@@ -264,82 +286,201 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private var lastDeletedIdea: IdeaVaultEntry? = null
+
     fun deleteIdea(idea: IdeaVaultEntry) {
         viewModelScope.launch {
+            lastDeletedIdea = idea
             repository.deleteIdea(idea)
         }
     }
 
-    // --- Dashboard Stats Calculations ---
-    val statsState = combine(allSongPosts, allIdeas, currentTime) { songs, ideas, now ->
-        calculateStats(songs, ideas, now)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStats())
-
-    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>, now: Long): DashboardStats {
-        val totalSongs = songs.size
-        val totalIdeas = ideas.size
-        
-        // Dynamic Status Counts
-        var postedCount = 0
-        var scheduledCount = 0
-        
-        songs.forEach { song ->
-            val status = getSongStatus(song, now)
-            when (status) {
-                SongStatus.POSTED -> postedCount++
-                SongStatus.SCHEDULED -> scheduledCount++
-                null -> {}
+    fun undoDeleteIdea() {
+        lastDeletedIdea?.let { idea ->
+            viewModelScope.launch {
+                repository.insertIdea(idea)
+                lastDeletedIdea = null
             }
         }
+    }
 
-        val completionProgress = if (totalSongs > 0) (postedCount.toFloat() / totalSongs * 100).toInt() else 0
+    // --- Reminder CRUD ---
+    fun addReminder(title: String, note: String, reminderDate: Long, reminderTime: Long?, notificationsEnabled: Boolean, colorLabel: String?, repeatType: RepeatType = RepeatType.NONE) {
+        viewModelScope.launch {
+            val reminder = Reminder(
+                title = title.trim(),
+                note = note.trim(),
+                reminderDate = normalizeDateToDayStart(reminderDate),
+                reminderTime = reminderTime,
+                repeatType = repeatType,
+                notificationsEnabled = notificationsEnabled,
+                colorLabel = colorLabel,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            val id = repository.insertReminder(reminder)
+            val savedReminder = reminder.copy(id = id.toInt())
+            if (notificationsEnabled) {
+                notificationHelper.scheduleReminder(savedReminder)
+            }
+        }
+    }
 
-        // Stats for DashboardScreen
-        val todayStart = normalizeDateToDayStart(now)
-        val songsPostedToday = songs.count { 
-            it.postDate != null && it.postDate >= todayStart && it.postDate <= now // Simple today check
+    fun updateReminder(id: Int, title: String, note: String, reminderDate: Long, reminderTime: Long?, notificationsEnabled: Boolean, colorLabel: String?, createdAt: Long, repeatType: RepeatType = RepeatType.NONE) {
+        viewModelScope.launch {
+            val reminder = Reminder(
+                id = id,
+                title = title.trim(),
+                note = note.trim(),
+                reminderDate = normalizeDateToDayStart(reminderDate),
+                reminderTime = reminderTime,
+                repeatType = repeatType,
+                notificationsEnabled = notificationsEnabled,
+                colorLabel = colorLabel,
+                createdAt = createdAt,
+                updatedAt = System.currentTimeMillis()
+            )
+            repository.updateReminder(reminder)
+            notificationHelper.cancelReminder(id)
+            if (notificationsEnabled) {
+                notificationHelper.scheduleReminder(reminder)
+            }
+        }
+    }
+
+    private var lastDeletedReminder: Reminder? = null
+
+    fun deleteReminder(reminder: Reminder) {
+        viewModelScope.launch {
+            lastDeletedReminder = reminder
+            repository.deleteReminder(reminder)
+            notificationHelper.cancelReminder(reminder.id)
+        }
+    }
+
+    fun undoDeleteReminder() {
+        lastDeletedReminder?.let { reminder ->
+            viewModelScope.launch {
+                val id = repository.insertReminder(reminder)
+                val restored = reminder.copy(id = id.toInt())
+                if (restored.notificationsEnabled) {
+                    notificationHelper.scheduleReminder(restored)
+                }
+                lastDeletedReminder = null
+            }
+        }
+    }
+
+    // --- Dashboard Stats Calculations ---
+    val statsState = combine(allSongPosts, allIdeas, allReminders, currentTime) { songs, ideas, reminders, now ->
+        calculateStats(songs, ideas, reminders, now)
+    }.distinctUntilChanged()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStats())
+
+    val todayAgendaItems = combine(allSongPosts, allReminders, currentTime) { songs, reminders, now ->
+        val today = normalizeDateToDayStart(now)
+        val todaySongs = songs.filter { it.postDate == today }
+        val todayReminders = reminders.filter { it.isOccurringOn(today) }
+        todaySongs to todayReminders
+    }.distinctUntilChanged()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList<SongPost>() to emptyList<Reminder>())
+
+    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>, reminders: List<Reminder>, now: Long): DashboardStats {
+        if (songs.isEmpty() && ideas.isEmpty() && reminders.isEmpty()) {
+            return DashboardStats(isLibraryEmpty = true)
         }
 
+        var postedCount = 0
+        var scheduledCount = 0
+        var songsPostedToday = 0
+        var songsLast7Days = 0
+        var songsThisMonth = 0
+        var lastMonthPosted = 0
+        
+        val todayStart = normalizeDateToDayStart(now)
         val sevenDaysAgo = now - (7L * 24 * 60 * 60 * 1000)
-        val songsLast7Days = songs.count { it.postDate != null && it.postDate in sevenDaysAgo..now }
-
+        
         val calendar = Calendar.getInstance()
         val currentMonth = calendar.get(Calendar.MONTH)
         val currentYear = calendar.get(Calendar.YEAR)
-        val songsThisMonth = songs.count {
-            if (it.postDate != null && it.postDate <= now) {
-                val c = Calendar.getInstance().apply { timeInMillis = it.postDate }
-                c.get(Calendar.MONTH) == currentMonth && c.get(Calendar.YEAR) == currentYear
-            } else false
+        
+        calendar.add(Calendar.MONTH, -1)
+        val lastMonth = calendar.get(Calendar.MONTH)
+        val lastMonthYear = calendar.get(Calendar.YEAR)
+
+        val singerMap = mutableMapOf<String, Int>()
+        val movieMap = mutableMapOf<String, Int>()
+        val languageMap = mutableMapOf<String, Int>()
+        val dayOfWeekMap = mutableMapOf<Int, Int>()
+        val heatmapMap = mutableMapOf<Long, Int>()
+        val weeklyActivity = IntArray(7) { 0 }
+
+        val startOfWeek = Calendar.getInstance().apply { 
+            timeInMillis = todayStart
+            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            if (timeInMillis > todayStart) add(Calendar.WEEK_OF_YEAR, -1)
+        }.timeInMillis
+
+        songs.forEach { song ->
+            val status = getSongStatus(song, now)
+            if (status == SongStatus.POSTED) postedCount++
+            else if (status == SongStatus.SCHEDULED) scheduledCount++
+
+            song.postDate?.let { date ->
+                val dayStart = normalizeDateToDayStart(date)
+                
+                if (date in todayStart..now) songsPostedToday++
+                if (date in sevenDaysAgo..now) songsLast7Days++
+                
+                val c = Calendar.getInstance().apply { timeInMillis = date }
+                val m = c.get(Calendar.MONTH)
+                val y = c.get(Calendar.YEAR)
+                
+                if (date <= now) {
+                    if (m == currentMonth && y == currentYear) songsThisMonth++
+                    if (m == lastMonth && y == lastMonthYear) lastMonthPosted++
+                    
+                    // Frequencies
+                    song.singers.split(",").forEach { 
+                        val s = it.trim()
+                        if (s.isNotBlank()) singerMap[s] = (singerMap[s] ?: 0) + 1
+                    }
+                    val movie = song.movieName.trim()
+                    if (movie.isNotBlank()) movieMap[movie] = (movieMap[movie] ?: 0) + 1
+                    val lang = song.language.trim()
+                    if (lang.isNotBlank()) languageMap[lang] = (languageMap[lang] ?: 0) + 1
+                    
+                    val dow = c.get(Calendar.DAY_OF_WEEK)
+                    dayOfWeekMap[dow] = (dayOfWeekMap[dow] ?: 0) + 1
+                    
+                    if (date >= startOfWeek) {
+                        val idx = if (dow == Calendar.SUNDAY) 6 else dow - 2
+                        if (idx in 0..6) weeklyActivity[idx]++
+                    }
+
+                    heatmapMap[dayStart] = (heatmapMap[dayStart] ?: 0) + 1
+                }
+            }
         }
 
-        val singerCounts = songs.asSequence()
-            .filter { it.postDate != null && it.postDate <= now }
-            .flatMap { it.singers.split(",") }
-            .map { it.trim() }
+        val categoryCounts = ideas.asSequence()
+            .mapNotNull { it.category?.trim() }
             .filter { it.isNotBlank() }
             .groupBy { it }
             .mapValues { it.value.size }
-        val mostPostedSinger = singerCounts.maxByOrNull { it.value }?.key ?: "N/A"
+        val mostUsedCategory = categoryCounts.maxByOrNull { it.value }?.key ?: "N/A"
 
-        val movieCounts = songs.asSequence()
-            .filter { it.postDate != null && it.postDate <= now }
-            .map { it.movieName.trim() }
-            .filter { it.isNotBlank() }
-            .groupBy { it }
-            .mapValues { it.value.size }
-        val mostPostedMovie = movieCounts.maxByOrNull { it.value }?.key ?: "N/A"
-
-        val languageCounts = songs.asSequence()
-            .filter { it.postDate != null && it.postDate <= now }
-            .map { it.language.trim() }
-            .filter { it.isNotBlank() }
-            .groupBy { it }
-            .mapValues { it.value.size }
-        val mostUsedLanguage = languageCounts.maxByOrNull { it.value }?.key ?: "N/A"
-
-        val pendingIdeas = ideas.count { !it.isPosted }
-        val postedIdeas = ideas.count { it.isPosted }
+        val favDayIdx = dayOfWeekMap.maxByOrNull { it.value }?.key
+        val favDayName = when (favDayIdx) {
+            Calendar.SUNDAY -> "Sunday"
+            Calendar.MONDAY -> "Monday"
+            Calendar.TUESDAY -> "Tuesday"
+            Calendar.WEDNESDAY -> "Wednesday"
+            Calendar.THURSDAY -> "Thursday"
+            Calendar.FRIDAY -> "Friday"
+            Calendar.SATURDAY -> "Saturday"
+            else -> "N/A"
+        }
 
         // Duplicate Stats
         val duplicateCount = songs.groupBy { 
@@ -350,21 +491,73 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             }.count { it.value.size > 1 }
 
         return DashboardStats(
-            totalSongs = totalSongs,
+            totalSongs = songs.size,
             postedSongsCount = postedCount,
             scheduledSongsCount = scheduledCount,
-            postingProgress = completionProgress,
+            postingProgress = if (songs.isNotEmpty()) (postedCount.toFloat() / songs.size * 100).toInt() else 0,
             duplicateSongsCount = duplicateCount,
-            isLibraryEmpty = totalSongs == 0 && totalIdeas == 0,
+            isLibraryEmpty = songs.isEmpty() && ideas.isEmpty(),
             songsPostedToday = songsPostedToday,
             songsLast7Days = songsLast7Days,
             songsThisMonth = songsThisMonth,
-            mostPostedSinger = mostPostedSinger,
-            mostPostedMovie = mostPostedMovie,
-            mostUsedLanguage = mostUsedLanguage,
-            pendingIdeasCount = pendingIdeas,
-            postedIdeasCount = postedIdeas
+            mostPostedSinger = singerMap.maxByOrNull { it.value }?.key ?: "N/A",
+            mostPostedMovie = movieMap.maxByOrNull { it.value }?.key ?: "N/A",
+            mostUsedLanguage = languageMap.maxByOrNull { it.value }?.key ?: "N/A",
+            pendingIdeasCount = ideas.count { !it.isPosted },
+            postedIdeasCount = ideas.count { it.isPosted },
+            currentStreak = calculateStreak(songs, todayStart),
+            longestStreak = calculateLongestStreak(songs),
+            weeklyActivity = weeklyActivity.toList(),
+            lastMonthPostedCount = lastMonthPosted,
+            favouritePostingDay = favDayName,
+            mostUsedCategory = mostUsedCategory,
+            activityHeatmap = heatmapMap,
+            totalReminders = reminders.size
         )
+    }
+
+    private fun calculateStreak(songs: List<SongPost>, todayStart: Long): Int {
+        val uniqueDays = songs.asSequence()
+            .filter { it.postDate != null && it.postDate <= System.currentTimeMillis() }
+            .map { normalizeDateToDayStart(it.postDate!!) }
+            .distinct()
+            .sortedDescending()
+            .toList()
+
+        if (uniqueDays.isEmpty()) return 0
+        val first = uniqueDays.first()
+        if (first == todayStart || first == todayStart - (24 * 60 * 60 * 1000)) {
+            var streak = 1
+            for (i in 0 until uniqueDays.size - 1) {
+                if (uniqueDays[i] - uniqueDays[i+1] == (24 * 60 * 60 * 1000L)) {
+                    streak++
+                } else break
+            }
+            return streak
+        }
+        return 0
+    }
+
+    private fun calculateLongestStreak(songs: List<SongPost>): Int {
+        val uniqueDays = songs.asSequence()
+            .filter { it.postDate != null && it.postDate <= System.currentTimeMillis() }
+            .map { normalizeDateToDayStart(it.postDate!!) }
+            .distinct()
+            .sorted()
+            .toList()
+
+        if (uniqueDays.isEmpty()) return 0
+        var longest = 1
+        var current = 1
+        for (i in 0 until uniqueDays.size - 1) {
+            if (uniqueDays[i+1] - uniqueDays[i] == (24 * 60 * 60 * 1000L)) {
+                current++
+            } else {
+                longest = maxOf(longest, current)
+                current = 1
+            }
+        }
+        return maxOf(longest, current)
     }
     
     fun getSongStatus(song: SongPost, now: Long): SongStatus? {
@@ -399,6 +592,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     put("musicDirector", song.musicDirector)
                     put("language", song.language)
                     put("postDate", song.postDate ?: JSONObject.NULL)
+                    put("contentLink", song.contentLink ?: JSONObject.NULL)
                     put("isPostedConfirmed", song.isPostedConfirmed)
                 })
             }
@@ -419,6 +613,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 })
             }
             root.put("ideas", ideasArray)
+
+            val remindersArray = JSONArray()
+            allReminders.value.forEach { reminder ->
+                remindersArray.put(JSONObject().apply {
+                    put("id", reminder.id)
+                    put("title", reminder.title)
+                    put("note", reminder.note)
+                    put("reminderDate", reminder.reminderDate)
+                    put("reminderTime", reminder.reminderTime ?: JSONObject.NULL)
+                    put("notificationsEnabled", reminder.notificationsEnabled)
+                    put("colorLabel", reminder.colorLabel ?: JSONObject.NULL)
+                    put("createdAt", reminder.createdAt)
+                    put("updatedAt", reminder.updatedAt)
+                })
+            }
+            root.put("reminders", remindersArray)
+
             root.toString(4)
         } catch (_: Exception) { "" }
     }
@@ -461,6 +672,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                                     musicDirector = sObj.optString("musicDirector", ""),
                                     language = sObj.optString("language", ""),
                                     postDate = if (sObj.isNull("postDate")) null else normalizeDateToDayStart(sObj.getLong("postDate")),
+                                    contentLink = if (sObj.isNull("contentLink")) null else sObj.getString("contentLink"),
                                     isPostedConfirmed = false
                                 ))
                                 if (finalNum > currentMax) currentMax = finalNum
@@ -496,6 +708,32 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             }
+            if (root.has("reminders")) {
+                val remindersArray = root.getJSONArray("reminders")
+                for (i in 0 until remindersArray.length()) {
+                    val rObj = remindersArray.getJSONObject(i)
+                    viewModelScope.launch {
+                        try {
+                            if (!rObj.has("title") || !rObj.has("reminderDate")) {
+                                android.util.Log.w("TrackerViewModel", "Skipping malformed JSON reminder entry: $rObj")
+                                return@launch
+                            }
+                            repository.insertReminder(Reminder(
+                                title = rObj.getString("title"),
+                                note = rObj.optString("note", ""),
+                                reminderDate = normalizeDateToDayStart(rObj.getLong("reminderDate")),
+                                reminderTime = if (rObj.isNull("reminderTime")) null else rObj.getLong("reminderTime"),
+                                notificationsEnabled = rObj.optBoolean("notificationsEnabled", false),
+                                colorLabel = if (rObj.isNull("colorLabel")) null else rObj.getString("colorLabel"),
+                                createdAt = rObj.optLong("createdAt", System.currentTimeMillis()),
+                                updatedAt = rObj.optLong("updatedAt", System.currentTimeMillis())
+                            ))
+                        } catch (e: Exception) {
+                            android.util.Log.e("TrackerViewModel", "Error importing JSON reminder entry", e)
+                        }
+                    }
+                }
+            }
             true
         } catch (_: Exception) { false }
     }
@@ -503,7 +741,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     // --- CSV Backup & Export ---
     fun exportBackupCsvSongs(): String {
         val sb = StringBuilder()
-        sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate,isPostedConfirmed\n")
+        sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate,contentLink,isPostedConfirmed\n")
         allSongPosts.value.forEach { song ->
             sb.append("${song.id},")
               .append("${song.entryNumber},")
@@ -514,6 +752,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("\"${song.musicDirector.replace("\"", "\"\"")}\",")
               .append("\"${song.language.replace("\"", "\"\"")}\",")
               .append("${song.postDate ?: ""},")
+              .append("\"${(song.contentLink ?: "").replace("\"", "\"\"")}\",")
               .append("${song.isPostedConfirmed}\n")
         }
         return sb.toString()
@@ -536,6 +775,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         return sb.toString()
     }
 
+    fun exportBackupCsvReminders(): String {
+        val sb = StringBuilder()
+        sb.append("id,title,note,reminderDate,reminderTime,notificationsEnabled,colorLabel,createdAt,updatedAt\n")
+        allReminders.value.forEach { reminder ->
+            sb.append("${reminder.id},")
+              .append("\"${reminder.title.replace("\"", "\"\"")}\",")
+              .append("\"${reminder.note.replace("\"", "\"\"")}\",")
+              .append("${reminder.reminderDate},")
+              .append("${reminder.reminderTime ?: ""},")
+              .append("${reminder.notificationsEnabled},")
+              .append("\"${(reminder.colorLabel ?: "").replace("\"", "\"\"")}\",")
+              .append("${reminder.createdAt},")
+              .append("${reminder.updatedAt}\n")
+        }
+        return sb.toString()
+    }
+
     fun importBackupCsvSongs(csvString: String): Boolean {
         if (csvString.isBlank()) return false
         return try {
@@ -544,7 +800,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             
             val header = lines.first().split(",")
             val entryNumIdx = header.indexOf("entryNumber")
-            val isPostedConfirmedIdx = header.indexOf("isPostedConfirmed")
+            val titleIdx = header.indexOf("title")
+            val movieIdx = header.indexOf("movieName")
+            val singersIdx = header.indexOf("singers")
+            val notesIdx = header.indexOf("notes")
+            val directorIdx = header.indexOf("musicDirector")
+            val langIdx = header.indexOf("language")
+            val dateIdx = header.indexOf("postDate")
+            val linkIdx = header.indexOf("contentLink")
             
             val rowsToImport = mutableListOf<List<String>>()
             for (i in 1 until lines.size) {
@@ -558,37 +821,33 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 var currentMax = repository.getMaxEntryNumber()
                 rowsToImport.forEach { parts ->
                     try {
-                        val titleIdx = if (entryNumIdx != -1) 2 else 1
-                        val movieIdx = if (entryNumIdx != -1) 3 else 2
+                        val title = if (titleIdx != -1 && parts.size > titleIdx) parts[titleIdx] else ""
+                        val movieName = if (movieIdx != -1 && parts.size > movieIdx) parts[movieIdx] else ""
                         
-                        if (parts.size <= titleIdx || parts.size <= movieIdx) {
-                            android.util.Log.w("TrackerViewModel", "Skipping malformed CSV row: $parts")
-                            return@forEach
-                        }
+                        if (title.isBlank() || movieName.isBlank()) return@forEach
 
-                        val title = parts[titleIdx]
-                        val movieName = parts[movieIdx]
-                        val singers = if (parts.size > (if (entryNumIdx != -1) 4 else 3)) parts[if (entryNumIdx != -1) 4 else 3] else ""
+                        val singers = if (singersIdx != -1 && parts.size > singersIdx) parts[singersIdx] else ""
                         
                         if (repository.checkDuplicate(title, movieName, singers) == null) {
-                            val importedNum = if (entryNumIdx != -1) parts[entryNumIdx].toLongOrNull() ?: 0L else 0L
+                            val importedNum = if (entryNumIdx != -1 && parts.size > entryNumIdx) parts[entryNumIdx].toLongOrNull() ?: 0L else 0L
                             val finalNum = if (importedNum > 0) importedNum else {
                                 currentMax++
                                 currentMax
                             }
                             
-                            val postDateStr = if (parts.size > (if (entryNumIdx != -1) 8 else 7)) parts[if (entryNumIdx != -1) 8 else 7] else ""
-                            val postDate = postDateStr.toLongOrNull()?.let { normalizeDateToDayStart(it) }
+                            val postDate = if (dateIdx != -1 && parts.size > dateIdx) parts[dateIdx].toLongOrNull()?.let { normalizeDateToDayStart(it) } else null
+                            val contentLink = if (linkIdx != -1 && parts.size > linkIdx && parts[linkIdx].isNotBlank()) parts[linkIdx] else null
 
                             repository.insertSongPost(SongPost(
                                 entryNumber = finalNum,
                                 title = title,
                                 movieName = movieName,
                                 singers = singers,
-                                notes = if (parts.size > (if (entryNumIdx != -1) 5 else 4)) parts[if (entryNumIdx != -1) 5 else 4] else "",
-                                musicDirector = if (parts.size > (if (entryNumIdx != -1) 6 else 5)) parts[if (entryNumIdx != -1) 6 else 5] else "",
-                                language = if (parts.size > (if (entryNumIdx != -1) 7 else 6)) parts[if (entryNumIdx != -1) 7 else 6] else "",
+                                notes = if (notesIdx != -1 && parts.size > notesIdx) parts[notesIdx] else "",
+                                musicDirector = if (directorIdx != -1 && parts.size > directorIdx) parts[directorIdx] else "",
+                                language = if (langIdx != -1 && parts.size > langIdx) parts[langIdx] else "",
                                 postDate = postDate,
+                                contentLink = contentLink,
                                 isPostedConfirmed = false
                             ))
                             if (finalNum > currentMax) currentMax = finalNum
@@ -625,16 +884,62 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 if (parts.size < 3) continue
                 
                 viewModelScope.launch {
-                    repository.insertIdea(IdeaVaultEntry(
-                        title = if (titleIdx != -1) parts[titleIdx] else parts[1],
-                        content = if (contentIdx != -1) parts[contentIdx] else parts[2],
-                        category = if (catIdx != -1 && parts.size > catIdx && parts[catIdx].isNotBlank()) parts[catIdx] else null,
-                        color = if (colorIdx != -1 && parts.size > colorIdx && parts[colorIdx].isNotBlank()) parts[colorIdx].toLongOrNull() else null,
-                        isPosted = if (isPostedIdx != -1 && parts.size > isPostedIdx) parts[isPostedIdx].toBoolean() else false,
-                        createdAt = if (createdIdx != -1 && parts.size > createdIdx) parts[createdIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
-                        updatedAt = if (updatedIdx != -1 && parts.size > updatedIdx) parts[updatedIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
-                        isPinned = if (pinnedIdx != -1 && parts.size > pinnedIdx) parts[pinnedIdx].toBoolean() else false
-                    ))
+                    try {
+                        repository.insertIdea(IdeaVaultEntry(
+                            title = if (titleIdx != -1) parts[titleIdx] else parts[1],
+                            content = if (contentIdx != -1) parts[contentIdx] else parts[2],
+                            category = if (catIdx != -1 && parts.size > catIdx && parts[catIdx].isNotBlank()) parts[catIdx] else null,
+                            color = if (colorIdx != -1 && parts.size > colorIdx && parts[colorIdx].isNotBlank()) parts[colorIdx].toLongOrNull() else null,
+                            isPosted = if (isPostedIdx != -1 && parts.size > isPostedIdx) parts[isPostedIdx].toBoolean() else false,
+                            createdAt = if (createdIdx != -1 && parts.size > createdIdx) parts[createdIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
+                            updatedAt = if (updatedIdx != -1 && parts.size > updatedIdx) parts[updatedIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
+                            isPinned = if (pinnedIdx != -1 && parts.size > pinnedIdx) parts[pinnedIdx].toBoolean() else false
+                        ))
+                    } catch (_: Exception) {}
+                }
+            }
+            true
+        } catch (_: Exception) { false }
+    }
+
+    fun importBackupCsvReminders(csvString: String): Boolean {
+        if (csvString.isBlank()) return false
+        return try {
+            val lines = csvString.lines()
+            if (lines.size < 2) return false
+            
+            val header = lines.first().split(",")
+            val titleIdx = header.indexOf("title")
+            val noteIdx = header.indexOf("note")
+            val dateIdx = header.indexOf("reminderDate")
+            val timeIdx = header.indexOf("reminderTime")
+            val notifyIdx = header.indexOf("notificationsEnabled")
+            val colorIdx = header.indexOf("colorLabel")
+            val createdIdx = header.indexOf("createdAt")
+            val updatedIdx = header.indexOf("updatedAt")
+
+            for (i in 1 until lines.size) {
+                val line = lines[i]
+                if (line.isBlank()) continue
+                val parts = parseCsvLine(line)
+                if (parts.size < 3) continue
+                
+                viewModelScope.launch {
+                    try {
+                        val title = if (titleIdx != -1) parts[titleIdx] else parts[1]
+                        val date = if (dateIdx != -1) parts[dateIdx].toLongOrNull() ?: 0L else parts[3].toLongOrNull() ?: 0L
+                        
+                        repository.insertReminder(Reminder(
+                            title = title,
+                            note = if (noteIdx != -1 && parts.size > noteIdx) parts[noteIdx] else "",
+                            reminderDate = normalizeDateToDayStart(date),
+                            reminderTime = if (timeIdx != -1 && parts.size > timeIdx && parts[timeIdx].isNotBlank()) parts[timeIdx].toLongOrNull() else null,
+                            notificationsEnabled = if (notifyIdx != -1 && parts.size > notifyIdx) parts[notifyIdx].toBoolean() else false,
+                            colorLabel = if (colorIdx != -1 && parts.size > colorIdx && parts[colorIdx].isNotBlank()) parts[colorIdx] else null,
+                            createdAt = if (createdIdx != -1 && parts.size > createdIdx) parts[createdIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
+                            updatedAt = if (updatedIdx != -1 && parts.size > updatedIdx) parts[updatedIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis()
+                        ))
+                    } catch (_: Exception) {}
                 }
             }
             true
@@ -724,5 +1029,13 @@ data class DashboardStats(
     val mostPostedMovie: String = "N/A",
     val mostUsedLanguage: String = "N/A",
     val pendingIdeasCount: Int = 0,
-    val postedIdeasCount: Int = 0
+    val postedIdeasCount: Int = 0,
+    val currentStreak: Int = 0,
+    val longestStreak: Int = 0,
+    val weeklyActivity: List<Int> = List(7) { 0 },
+    val lastMonthPostedCount: Int = 0,
+    val favouritePostingDay: String = "N/A",
+    val mostUsedCategory: String = "N/A",
+    val activityHeatmap: Map<Long, Int> = emptyMap(),
+    val totalReminders: Int = 0
 )

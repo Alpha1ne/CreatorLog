@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,12 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import com.voiceofmelody.songdailytracker.TrackerTab
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.ui.DuplicateGroup
 import com.voiceofmelody.songdailytracker.ui.MatchLevel
 import com.voiceofmelody.songdailytracker.ui.SongStatus
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
 import com.voiceofmelody.songdailytracker.ui.ViewMode
+import com.voiceofmelody.songdailytracker.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -81,8 +84,8 @@ fun StatusBadge(status: SongStatus?) {
     if (status == null) return
 
     val color = when (status) {
-        SongStatus.SCHEDULED -> Color(0xFFFBBF24) // Gold
-        SongStatus.POSTED -> Color(0xFF10B981) // Green
+        SongStatus.SCHEDULED -> StatusScheduled
+        SongStatus.POSTED -> StatusPosted
     }
     
     val text = when (status) {
@@ -91,19 +94,20 @@ fun StatusBadge(status: SongStatus?) {
     }
 
     Surface(
+        modifier = Modifier.height(DesignSystem.StatusBadgeHeight),
         color = color.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.4f))
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusBadge),
+        border = BorderStroke(DesignSystem.BorderThickness, color.copy(alpha = 0.4f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = DesignSystem.SpacingNormal),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingTiny + 2.dp)
         ) {
             Box(modifier = Modifier.size(6.dp).background(color, CircleShape))
             Text(
                 text = text,
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = color
             )
@@ -116,6 +120,8 @@ fun StatusBadge(status: SongStatus?) {
 fun SongsScreen(
     viewModel: TrackerViewModel, 
     onNavigateToAddEdit: (SongPost?) -> Unit,
+    onTabSelected: (TrackerTab) -> Unit,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
     val searchResults by viewModel.searchedSongs.collectAsState()
@@ -131,18 +137,25 @@ fun SongsScreen(
 
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
-    var highlightedSongId by remember { mutableIntStateOf(-1) }
-    val scope = rememberCoroutineScope()
+    var highlightedSongId by rememberSaveable { mutableIntStateOf(-1) }
+    
+    var isInitialLoading by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        if (isInitialLoading) {
+            delay(100)
+            isInitialLoading = false
+        }
+    }
 
     var songToDelete by remember { mutableStateOf<SongPost?>(null) }
     
     // Filters State
-    var showFiltersPanel by remember { mutableStateOf(false) }
-    var dateFilter by remember { mutableStateOf(DateFilter.ALL) }
-    var sortBy by remember { mutableStateOf(SortOption.NEWEST) }
-    var selectedLanguage by remember { mutableStateOf("All") }
-    var selectedSinger by remember { mutableStateOf("All") }
-    var selectedMovie by remember { mutableStateOf("All") }
+    var showFiltersPanel by rememberSaveable { mutableStateOf(false) }
+    var dateFilter by rememberSaveable { mutableStateOf(DateFilter.ALL) }
+    var sortBy by rememberSaveable { mutableStateOf(SortOption.NEWEST) }
+    var selectedLanguage by rememberSaveable { mutableStateOf("All") }
+    var selectedSinger by rememberSaveable { mutableStateOf("All") }
+    var selectedMovie by rememberSaveable { mutableStateOf("All") }
 
     // Auto-clear highlight
     LaunchedEffect(highlightedSongId) {
@@ -206,13 +219,13 @@ fun SongsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+                    .padding(start = DesignSystem.ScreenPadding, end = DesignSystem.ScreenPadding, top = DesignSystem.ScreenPadding, bottom = DesignSystem.SpacingSmall),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 UnifiedSearchToolbar(
                     query = searchQuery,
                     onQueryChange = { viewModel.searchQuery.value = it },
-                    placeholder = "Search songs, movies...",
+                    placeholder = "Search content...",
                     showFiltersPanel = showFiltersPanel,
                     onFilterToggle = { showFiltersPanel = !showFiltersPanel },
                     viewMode = viewMode,
@@ -224,14 +237,19 @@ fun SongsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(DesignSystem.SpacingTiny))
 
             // Filters & Sort (Panel)
-            AnimatedVisibility(visible = showFiltersPanel) {
+            AnimatedVisibility(
+                visible = showFiltersPanel,
+                enter = expandVertically(animationSpec = tween(DesignSystem.AnimationDurationShort, easing = FastOutSlowInEasing)) + fadeIn(),
+                exit = shrinkVertically(animationSpec = tween(DesignSystem.AnimationDurationShort, easing = FastOutSlowInEasing)) + fadeOut()
+            ) {
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = DesignSystem.ScreenPadding, vertical = DesignSystem.SpacingTiny),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+                    border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Filter by Status", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -273,17 +291,28 @@ fun SongsScreen(
                 }
             }
 
-            if (processedSongsList.isEmpty()) {
+            if (allSongs.isEmpty() && isInitialLoading) {
+                LazyColumn(
+                    contentPadding = PaddingValues(DesignSystem.ScreenPadding, 8.dp, DesignSystem.ScreenPadding, 120.dp),
+                    verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
+                ) {
+                    items(5, key = { it }, contentType = { "shimmer" }) { ShimmerCard(height = 120.dp) }
+                }
+            } else if (processedSongsList.isEmpty()) {
                 EmptySongsState(isSearchActive = searchQuery.isNotEmpty() || dateFilter != DateFilter.ALL, onAddFirst = { onNavigateToAddEdit(null) })
             } else {
                 if (viewMode == ViewMode.LIST) {
                     LazyColumn(
                         state = lazyListState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        contentPadding = PaddingValues(DesignSystem.ScreenPadding, DesignSystem.SpacingSmall, DesignSystem.ScreenPadding, 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
                     ) {
-                        items(processedSongsList, key = { it.id }) { song ->
+                        items(
+                            items = processedSongsList,
+                            key = { it.id },
+                            contentType = { "song_card" }
+                        ) { song ->
                             val isExactDuplicate = remember(allSongs, song) {
                                 allSongs.count { 
                                     it.title.lowercase().trim() == song.title.lowercase().trim() &&
@@ -307,11 +336,15 @@ fun SongsScreen(
                         columns = GridCells.Fixed(2),
                         state = lazyGridState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 120.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(DesignSystem.ScreenPadding, DesignSystem.SpacingSmall, DesignSystem.ScreenPadding, 120.dp),
+                        horizontalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing),
+                        verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
                     ) {
-                        items(processedSongsList, key = { it.id }) { song ->
+                        items(
+                            items = processedSongsList,
+                            key = { it.id },
+                            contentType = { "song_grid_card" }
+                        ) { song ->
                             val isExactDuplicate = remember(allSongs, song) {
                                 allSongs.count { 
                                     it.title.lowercase().trim() == song.title.lowercase().trim() &&
@@ -340,17 +373,35 @@ fun SongsScreen(
                 .align(Alignment.BottomEnd)
                 .padding(20.dp)
                 .testTag("add_song_fab"),
-            contentDescription = "Record Song Post"
+            contentDescription = "Record Content"
         )
     }
 
     if (songToDelete != null) {
+        val scope = rememberCoroutineScope()
         AlertDialog(
             onDismissRequest = { songToDelete = null },
-            title = { Text("Delete Song?") },
-            text = { Text("Are you sure you want to permanently delete this song?") },
+            title = { Text("Delete Content?") },
+            text = { Text("Are you sure you want to permanently delete this content?") },
             confirmButton = {
-                Button(onClick = { viewModel.deleteSongPost(songToDelete!!); songToDelete = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                Button(
+                    onClick = { 
+                        val song = songToDelete!!
+                        viewModel.deleteSongPost(song)
+                        songToDelete = null
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Content deleted",
+                                actionLabel = "Undo",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoDeleteSong()
+                            }
+                        }
+                    }, 
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
                     Text("Delete")
                 }
             },
@@ -381,7 +432,7 @@ fun GroupedDuplicateDialog(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
-                Text("Duplicate Song Detected", fontWeight = FontWeight.Bold)
+                Text("Duplicate Content Detected", fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -389,10 +440,10 @@ fun GroupedDuplicateDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)
             ) {
                 Text(
-                    text = "A similar song already exists in your collection. Review the matches below:",
+                    text = "Similar content already exists in your collection. Review the matches below:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -400,21 +451,21 @@ fun GroupedDuplicateDialog(
                 if (matches.exact.isNotEmpty()) {
                     MatchSection(
                         title = "Exact Match",
-                        color = Color(0xFF43A047),
+                        color = StatusPosted,
                         songs = matches.exact
                     )
                 }
                 if (matches.possible.isNotEmpty()) {
                     MatchSection(
                         title = "Possible Duplicate",
-                        color = Color(0xFFFB8C00),
+                        color = StatusScheduled,
                         songs = matches.possible
                     )
                 }
                 if (matches.similar.isNotEmpty()) {
                     MatchSection(
                         title = "Similar Song",
-                        color = Color(0xFF1E88E5),
+                        color = AccentAzure,
                         songs = matches.similar
                     )
                 }
@@ -536,18 +587,13 @@ fun FilterDropdown(label: String, selectedOption: String, options: List<String>,
 
 @Composable
 fun EmptySongsState(isSearchActive: Boolean, onAddFirst: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Surface(modifier = Modifier.size(100.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), shape = CircleShape) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(imageVector = if (isSearchActive) Icons.Default.SearchOff else Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
-                }
-            }
-            Text(text = if (isSearchActive) "No Results" else "No Songs Yet", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
-            Text(text = if (isSearchActive) "Try different keywords." else "Start tracking your Instagram songs history.", textAlign = TextAlign.Center)
-            if (!isSearchActive) Button(onClick = onAddFirst) { Text("Add First Song") }
-        }
-    }
+    PremiumEmptyState(
+        icon = if (isSearchActive) Icons.Default.SearchOff else Icons.Default.AutoAwesome,
+        title = if (isSearchActive) "No results found" else "No content yet",
+        subtitle = if (isSearchActive) "Try different keywords or reset your filters." else "Your content history starts here. Add your first entry to begin tracking.",
+        actionLabel = if (isSearchActive) null else "Add First Entry",
+        onAction = if (isSearchActive) null else onAddFirst
+    )
 }
 
 @Composable
@@ -564,51 +610,150 @@ fun SongHistoryCard(
         SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
     } else "No Date"
 
-    val infiniteTransition = rememberInfiniteTransition(label = "highlight")
-    val highlightAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
     val haptic = LocalHapticFeedback.current
-
+    
     Card(
-        modifier = Modifier.fillMaxWidth().then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)) else Modifier),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        modifier = Modifier
+            .fillMaxWidth()
+            .workspacePressAnimation()
+            .then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(DesignSystem.CornerRadiusLarge)) else Modifier),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) 
+            else MaterialTheme.colorScheme.surfaceVariant
+        ),
+        border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 4.dp),
+        onClick = onEdit
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(DesignSystem.CardPadding)) {
+            // TOP ROW
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
                     StatusBadge(status)
                     if (isDuplicateBadgeVisible) {
-                        Surface(color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f), shape = RoundedCornerShape(4.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))) {
-                            Text("Duplicate", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.1f), 
+                            shape = RoundedCornerShape(DesignSystem.CornerRadiusBadge), 
+                            border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            modifier = Modifier.height(DesignSystem.StatusBadgeHeight)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+                                Text(
+                                    "Duplicate", 
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold, 
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
-                    Text(text = "#${String.format(Locale.US, "%04d", song.entryNumber)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = song.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(text = "Movie: ${song.movieName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (song.singers.isNotBlank()) Text(text = "Singers: ${song.singers}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (song.musicDirector.isNotBlank()) Text(text = "Music Director: ${song.musicDirector}", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.tertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (song.language.isNotBlank()) Text(text = "Language: ${song.language}", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (song.notes.isNotBlank()) Text(text = "Notes: ${song.notes}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(text = dateStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    text = "#${String.format(Locale.US, "%04d", song.entryNumber)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
-            Row {
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit") }
-                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onDelete() }) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+
+            Spacer(modifier = Modifier.height(DesignSystem.SpacingNormal))
+
+            // SECOND ROW: Song Title
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            // THIRD ROW: Movie
+            if (song.movieName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(DesignSystem.SpacingTiny))
+                Text(
+                    text = song.movieName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // FOURTH ROW: Singers
+            if (song.singers.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = song.singers,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // FIFTH ROW: Music Director
+            if (song.musicDirector.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = song.musicDirector,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(DesignSystem.SpacingNormal))
+
+            // BOTTOM ROW
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
+                    Text(
+                        text = dateStr,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    if (song.contentLink != null) {
+                        val context = LocalContext.current
+                        IconButton(
+                            onClick = { 
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                com.voiceofmelody.songdailytracker.util.openContentLink(context, song.contentLink) 
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew, 
+                                contentDescription = "Open Post", 
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(DesignSystem.IconSizeMedium))
+                    }
+                    IconButton(onClick = { 
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDelete() 
+                    }, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = "Delete", 
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(DesignSystem.IconSizeMedium)
+                        )
+                    }
+                }
             }
         }
     }
@@ -628,42 +773,117 @@ fun SongGridCard(
         SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(song.postDate))
     } else "No Date"
 
-    val infiniteTransition = rememberInfiniteTransition(label = "highlight")
-    val highlightAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
     val haptic = LocalHapticFeedback.current
 
     Card(
-        modifier = Modifier.fillMaxWidth().then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)) else Modifier),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .workspacePressAnimation()
+            .then(if (isHighlighted) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(DesignSystem.CornerRadiusLarge)) else Modifier),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) 
+            else MaterialTheme.colorScheme.surfaceVariant
+        ),
+        border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 4.dp),
+        onClick = onEdit
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+        Column(modifier = Modifier.padding(DesignSystem.SpacingMedium).fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(), 
+                horizontalArrangement = Arrangement.SpaceBetween, 
+                verticalAlignment = Alignment.Top
+            ) {
                 StatusBadge(status)
-                Text(text = "#${String.format(Locale.US, "%04d", song.entryNumber)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                Text(
+                    text = "#${String.format(Locale.US, "%04d", song.entryNumber)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(text = song.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(text = song.movieName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (song.singers.isNotBlank()) Text(text = song.singers, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            
+            Spacer(modifier = Modifier.height(DesignSystem.SpacingSmall))
+            
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (song.movieName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = song.movieName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             if (isDuplicateBadgeVisible) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Duplicate", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                Spacer(modifier = Modifier.height(DesignSystem.SpacingTiny))
+                Text(
+                    "Duplicate", 
+                    color = MaterialTheme.colorScheme.error, 
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = dateStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onDelete() }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(), 
+                horizontalArrangement = Arrangement.SpaceBetween, 
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingTiny)) {
+                    Text(
+                        text = dateStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                    if (song.contentLink != null) {
+                        val context = LocalContext.current
+                        IconButton(
+                            onClick = { 
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                com.voiceofmelody.songdailytracker.util.openContentLink(context, song.contentLink) 
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew, 
+                                contentDescription = "Open Post", 
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(
+                        onClick = { 
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDelete() 
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = null, 
+                            tint = MaterialTheme.colorScheme.error, 
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
             }
         }
     }

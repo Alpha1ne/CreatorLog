@@ -1,22 +1,30 @@
 package com.voiceofmelody.songdailytracker.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -24,103 +32,188 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.voiceofmelody.songdailytracker.TrackerTab
+import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
+import com.voiceofmelody.songdailytracker.data.model.Reminder
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.ui.DashboardStats
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.theme.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     viewModel: TrackerViewModel, 
-    onNavigateToAddEdit: () -> Unit,
+    onNavigateToAddEdit: (SongPost?) -> Unit,
+    onTabSelected: (TrackerTab) -> Unit,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
     val stats by viewModel.statsState.collectAsState()
     val songPosts by viewModel.allSongPosts.collectAsState()
-    val recentSongs = remember(songPosts) { songPosts.take(3) }
-    val scrollState = rememberScrollState()
+    val reminders by viewModel.allReminders.collectAsState()
+    val allIdeas by viewModel.allIdeas.collectAsState()
+    val todayAgenda by viewModel.todayAgendaItems.collectAsState()
+    val now by viewModel.currentTime.collectAsState()
+    val scrollState = rememberSaveable(saver = androidx.compose.foundation.ScrollState.Saver) {
+        androidx.compose.foundation.ScrollState(0)
+    }
+    val scope = rememberCoroutineScope()
+
+    var selectedDateHub by remember { mutableStateOf<Long?>(null) }
+    var hubSongs by remember { mutableStateOf<List<SongPost>>(emptyList()) }
+    var hubReminders by remember { mutableStateOf<List<Reminder>>(emptyList()) }
+    
+    var reminderToEdit by remember { mutableStateOf<Reminder?>(null) }
+    var showReminderDialog by remember { mutableStateOf(false) }
+    var showIdeaDialog by remember { mutableStateOf(false) }
+
+    var isInitialLoading by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        if (isInitialLoading) {
+            kotlinx.coroutines.delay(300)
+            isInitialLoading = false
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+            .padding(DesignSystem.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DesignSystem.SectionSpacing)
     ) {
-        if (stats.isLibraryEmpty) {
-            WelcomeCard(onQuickAddClicked = onNavigateToAddEdit)
+        if (isInitialLoading) {
+            DashboardShimmerSkeleton()
+        } else if (stats.isLibraryEmpty) {
+            WelcomeCard(onQuickAddClicked = { onNavigateToAddEdit(null) })
         } else {
-            // Hero Header Section with Quick Add Action
-            CreatorHeroHeader(onQuickAddClicked = onNavigateToAddEdit)
-        }
+            // 1. Premium Hero Header
+            DashboardPremiumHeroCard(stats = stats)
 
-        // Posting Stats Grid Header
-        SectionTitle(title = "Posting Overview", icon = Icons.Default.BarChart)
+            // 2. Productivity Summary
+            ProductivitySummaryGrid(stats = stats)
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            StatsGridCard(
-                title = "Posted Today",
-                value = stats.songsPostedToday,
-                subtitle = "Tracks logged today",
-                icon = Icons.Default.Today,
-                gradientColors = listOf(Color(0xFFE1306C), Color(0xFFC13584)),
-                modifier = Modifier.weight(1f)
+            // 3. Creator Calendar
+            Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+                SectionTitle(title = "Creator Calendar", icon = Icons.Default.CalendarMonth)
+                CreatorCalendar(
+                    songs = songPosts,
+                    reminders = reminders,
+                    now = now,
+                    onDateSelected = { date, songs, items ->
+                        selectedDateHub = date
+                        hubSongs = songs
+                        hubReminders = items
+                    }
+                )
+            }
+
+            // 4. Today's Agenda
+            TodayAgendaSection(
+                todaySongs = todayAgenda.first,
+                todayReminders = todayAgenda.second,
+                pendingIdeasCount = stats.pendingIdeasCount,
+                ideas = allIdeas,
+                onOpenSong = onNavigateToAddEdit,
+                onOpenReminders = {
+                    val today = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis
+                    selectedDateHub = today
+                    hubSongs = songPosts.filter { it.postDate == today }
+                    hubReminders = reminders.filter { it.isOccurringOn(today) }
+                },
+                onOpenPlanner = { onTabSelected(TrackerTab.PLANNER) }
             )
-            StatsGridCard(
-                title = "Total Posted",
-                value = stats.postedSongsCount,
-                subtitle = "All-time history",
-                icon = Icons.Default.MusicNote,
-                gradientColors = listOf(Color(0xFF833AB4), Color(0xFF5B259F)),
-                modifier = Modifier.weight(1f)
+
+            // 5. Quick Actions
+            QuickActionsHub(
+                onAddSong = { onNavigateToAddEdit(null) },
+                onAddIdea = { showIdeaDialog = true },
+                onAddReminder = {
+                    reminderToEdit = null
+                    selectedDateHub = System.currentTimeMillis()
+                    showReminderDialog = true
+                }
             )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            StatsGridCard(
-                title = "This Week",
-                value = stats.songsLast7Days,
-                subtitle = "Past 7 days",
-                icon = Icons.Default.DateRange,
-                gradientColors = listOf(Color(0xFF00B4DB), Color(0xFF0083B0)),
-                modifier = Modifier.weight(1f)
-            )
-            StatsGridCard(
-                title = "Scheduled",
-                value = stats.scheduledSongsCount,
-                subtitle = "Upcoming tracks",
-                icon = Icons.Default.CalendarMonth,
-                gradientColors = listOf(Color(0xFF10B981), Color(0xFF059669)),
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // Curator Intelligence Insights Card
-        CuratorIntelligenceCard(stats = stats)
-
-        // Content Planner Insights Card
-        ContentPlannerInsightsCard(stats = stats)
-
-        // Target Posting Goal Section
-        PostingGoalProgressCard(stats.songsThisMonth)
-
-        // Recent Tracks Feed Section
-        if (recentSongs.isNotEmpty()) {
-            SectionTitle(title = "Recently Posted Tracks", icon = Icons.Default.History)
-            RecentlyPostedFeed(recentSongs)
         }
 
         // Extra space for Floating Navigation Bar
         Spacer(modifier = Modifier.height(100.dp))
+    }
+
+    // Hub Bottom Sheet
+    if (selectedDateHub != null) {
+        DayDetailBottomSheet(
+            selectedDate = selectedDateHub!!,
+            songs = hubSongs,
+            reminders = hubReminders,
+            onDismiss = { selectedDateHub = null },
+            onAddReminder = { 
+                reminderToEdit = null
+                showReminderDialog = true 
+            },
+            onEditReminder = { 
+                reminderToEdit = it
+                showReminderDialog = true 
+            },
+            onDeleteReminder = { reminder ->
+                viewModel.deleteReminder(reminder)
+                selectedDateHub = null
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Reminder deleted",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.undoDeleteReminder()
+                    }
+                }
+            },
+            onOpenSong = { onNavigateToAddEdit(it); selectedDateHub = null }
+        )
+    }
+
+    // Reminder Edit Dialog
+    if (showReminderDialog) {
+        ReminderEditDialog(
+            reminder = reminderToEdit,
+            initialDate = selectedDateHub ?: System.currentTimeMillis(),
+            onDismiss = { showReminderDialog = false },
+            onSave = { title, note, time, notify, repeat ->
+                if (reminderToEdit == null) {
+                    viewModel.addReminder(title, note, selectedDateHub!!, time, notify, null, repeat)
+                    scope.launch { snackbarHostState.showSnackbar("Reminder created") }
+                } else {
+                    viewModel.updateReminder(reminderToEdit!!.id, title, note, selectedDateHub!!, time, notify, null, reminderToEdit!!.createdAt, repeat)
+                    scope.launch { snackbarHostState.showSnackbar("Reminder updated") }
+                }
+                showReminderDialog = false
+                selectedDateHub = null // Close hub to refresh
+            }
+        )
+    }
+
+    // Idea Dialog
+    if (showIdeaDialog) {
+        IdeaFormDialog(
+            onDismiss = { showIdeaDialog = false },
+            onSave = { title, content, category, color, isPosted ->
+                viewModel.addIdea(title, content, category, color, isPosted)
+                showIdeaDialog = false
+                scope.launch { snackbarHostState.showSnackbar("Idea created") }
+            }
+        )
     }
 }
 
@@ -130,21 +223,21 @@ fun WelcomeCard(onQuickAddClicked: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag("welcome_card"),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)
         )
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(DesignSystem.CardPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)
         ) {
             Icon(
-                imageVector = Icons.Default.MusicNote,
+                imageVector = Icons.Default.AutoAwesome,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(DesignSystem.IconSizeExtraLarge)
             )
             Text(
                 text = "Welcome to CreatorLog",
@@ -153,7 +246,7 @@ fun WelcomeCard(onQuickAddClicked: () -> Unit) {
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "Your personal helper to record song feeds, check duplicates, and plan your Instagram content. Start by adding your first song post!",
+                text = "Start by recording your first piece of content to see your library grow!",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -161,38 +254,134 @@ fun WelcomeCard(onQuickAddClicked: () -> Unit) {
             Button(
                 onClick = onQuickAddClicked,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Get Started: Add First Song")
+                Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
+                Text("Add First Content")
             }
         }
     }
 }
 
 @Composable
-fun CreatorHeroHeader(onQuickAddClicked: () -> Unit) {
-    Button(
-        onClick = onQuickAddClicked,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("quick_add_button"),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(16.dp)
+fun DashboardShimmerSkeleton() {
+    Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SectionSpacing)) {
+        ShimmerCard(height = 180.dp) // Hero
+        Row(horizontalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)) {
+            ShimmerCard(modifier = Modifier.weight(1f), height = 80.dp)
+            ShimmerCard(modifier = Modifier.weight(1f), height = 80.dp)
+            ShimmerCard(modifier = Modifier.weight(1f), height = 80.dp)
+        }
+        ShimmerCard(height = 300.dp) // Calendar
+        ShimmerCard(height = 150.dp) // Agenda
+    }
+}
+
+@Composable
+fun DashboardPremiumHeroCard(stats: DashboardStats) {
+    val animatedCount by animateIntAsState(
+        targetValue = stats.postedSongsCount,
+        animationSpec = tween(DesignSystem.AnimationDurationLong, easing = FastOutSlowInEasing),
+        label = "heroCount"
+    )
+
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) DesignSystem.PressScale else 1.0f,
+        label = "hero_scale"
+    )
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(DesignSystem.AnimationDurationMedium)) + scaleIn(tween(DesignSystem.AnimationDurationMedium, easing = FastOutSlowInEasing), initialScale = 0.92f)
     ) {
-        Icon(
-            imageVector = Icons.Default.AddCircle,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = "Quick Add Song",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(scale)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {}
+                ),
+            shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(
+                        Brush.linearGradient(
+                            listOf(HeroGradientStart, HeroGradientEnd),
+                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                            end = androidx.compose.ui.geometry.Offset.Infinite
+                        )
+                    )
+                    .padding(DesignSystem.CardPadding)
+            ) {
+                val greeting = remember { getTimeGreeting() }
+                Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column {
+                            Text(
+                                text = greeting,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                            Text(
+                                text = "CreatorLog",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Your Content Hub",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = animatedCount.toString(),
+                            style = MaterialTheme.typography.displayLarge,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Posts Published",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun getTimeGreeting(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 0..11 -> "Good Morning"
+        in 12..16 -> "Good Afternoon"
+        else -> "Good Evening"
     }
 }
 
@@ -200,8 +389,8 @@ fun CreatorHeroHeader(onQuickAddClicked: () -> Unit) {
 fun SectionTitle(title: String, icon: ImageVector) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(vertical = 4.dp)
+        horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall),
+        modifier = Modifier.padding(vertical = DesignSystem.SpacingTiny)
     ) {
         Icon(
             imageVector = icon,
@@ -218,382 +407,241 @@ fun SectionTitle(title: String, icon: ImageVector) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StatsGridCard(
+fun ProductivitySummaryGrid(stats: DashboardStats) {
+    val metrics = remember(stats) {
+        listOf(
+            "Total Content" to stats.totalSongs,
+            "Ideas" to (stats.postedIdeasCount + stats.pendingIdeasCount),
+            "Tasks" to stats.totalReminders,
+            "Posted" to stats.postedSongsCount,
+            "Scheduled" to stats.scheduledSongsCount,
+            "Duplicates" to stats.duplicateSongsCount
+        )
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+        SectionTitle(title = "Daily Summary", icon = Icons.Default.Dashboard)
+        
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing),
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing),
+            maxItemsInEachRow = 3
+        ) {
+            metrics.forEach { (label, value) ->
+                Card(
+                    modifier = Modifier.weight(1f).widthIn(min = 100.dp),
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(DesignSystem.SpacingMedium),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = value.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                        Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TodayAgendaSection(
+    todaySongs: List<SongPost>,
+    todayReminders: List<Reminder>,
+    pendingIdeasCount: Int,
+    ideas: List<IdeaVaultEntry>,
+    onOpenSong: (SongPost) -> Unit,
+    onOpenReminders: () -> Unit,
+    onOpenPlanner: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+        SectionTitle(title = "Today's Agenda", icon = Icons.AutoMirrored.Filled.EventNote)
+
+        if (todaySongs.isEmpty() && todayReminders.isEmpty() && pendingIdeasCount == 0) {
+            PremiumEmptyState(
+                icon = Icons.Default.DoneAll,
+                title = "All clear for today!",
+                subtitle = "Enjoy your free time or start planning your next post."
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
+                // Today's Songs
+                todaySongs.forEach { song ->
+                    AgendaItem(
+                        title = song.title,
+                        subtitle = "Scheduled Content",
+                        icon = Icons.Default.AutoAwesome,
+                        color = StatusPosted,
+                        onClick = { onOpenSong(song) }
+                    )
+                }
+
+                // Today's Reminders
+                todayReminders.forEach { reminder ->
+                    AgendaItem(
+                        title = reminder.title,
+                        subtitle = "Reminder",
+                        icon = Icons.Default.Notifications,
+                        color = StatusReminder,
+                        onClick = onOpenReminders
+                    )
+                }
+
+                // Pending Ideas
+                if (pendingIdeasCount > 0) {
+                    val displayIdeas = ideas.filter { !it.isPosted }.take(3)
+                    displayIdeas.forEach { idea ->
+                        AgendaItem(
+                            title = idea.title,
+                            subtitle = "Idea in Workspace",
+                            icon = Icons.Default.Lightbulb,
+                            color = MaterialTheme.colorScheme.primary,
+                            onClick = onOpenPlanner
+                        )
+                    }
+                    if (pendingIdeasCount > 3) {
+                        TextButton(
+                            onClick = onOpenPlanner,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text("View all ${pendingIdeasCount} ideas")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AgendaItem(
     title: String,
-    value: Int,
     subtitle: String,
     icon: ImageVector,
-    gradientColors: List<Color>,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(DesignSystem.CardPadding),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingLarge)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(color.copy(alpha = 0.1f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+        }
+    }
+}
+
+@Composable
+fun QuickActionsHub(
+    onAddSong: () -> Unit,
+    onAddIdea: () -> Unit,
+    onAddReminder: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+        SectionTitle(title = "Quick Actions", icon = Icons.Default.RocketLaunch)
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
+        ) {
+            ActionCard(
+                title = "Add Content",
+                icon = Icons.Default.AddCircle,
+                color = MaterialTheme.colorScheme.primary,
+                onClick = onAddSong,
+                modifier = Modifier.weight(1f)
+            )
+            ActionCard(
+                title = "New Idea",
+                icon = Icons.Default.Lightbulb,
+                color = StatusScheduled,
+                onClick = onAddIdea,
+                modifier = Modifier.weight(1f)
+            )
+            ActionCard(
+                title = "Reminder",
+                icon = Icons.Default.NotificationsActive,
+                color = StatusReminder,
+                onClick = onAddReminder,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+fun ActionCard(
+    title: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val animatedValue by animateIntAsState(
-        targetValue = value,
-        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-        label = "count"
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) DesignSystem.PressScale else 1.0f,
+        animationSpec = tween(durationMillis = 100, easing = FastOutSlowInEasing),
+        label = "action_scale"
     )
 
     Card(
-        modifier = modifier.height(115.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-    ) {
-        Box(
-            modifier = Modifier
-                .background(Brush.linearGradient(gradientColors))
-                .fillMaxSize()
-                .padding(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = title,
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-                Column {
-                    Text(
-                        text = animatedValue.toString(),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = subtitle,
-                        fontSize = 10.sp,
-                        color = Color.White.copy(alpha = 0.75f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CuratorIntelligenceCard(stats: DashboardStats) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
+        modifier = modifier
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick
+            ),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Curator Intelligence Insights",
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                InsightItem(
-                    label = "Top Singer",
-                    value = stats.mostPostedSinger,
-                    icon = Icons.Default.Person,
-                    modifier = Modifier.weight(1f)
-                )
-                InsightItem(
-                    label = "Top Movie",
-                    value = stats.mostPostedMovie,
-                    icon = Icons.Default.Movie,
-                    modifier = Modifier.weight(1f)
-                )
-                InsightItem(
-                    label = "Top Language",
-                    value = stats.mostUsedLanguage,
-                    icon = Icons.Default.Translate,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun ContentPlannerInsightsCard(stats: DashboardStats) {
-    val animatedProgress by animateFloatAsState(
-        targetValue = stats.postingProgress / 100f,
-        animationSpec = tween(durationMillis = 1000),
-        label = "progress"
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "Content Planner Insights",
-                fontWeight = FontWeight.ExtraBold,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Pending", style = MaterialTheme.typography.labelMedium, color = Color(0xFFFB8C00))
-                    Text(
-                        text = stats.pendingIdeasCount.toString(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Posted", style = MaterialTheme.typography.labelMedium, color = Color(0xFF43A047))
-                    Text(
-                        text = stats.postedIdeasCount.toString(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Progress", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(
-                        text = "${stats.postingProgress}%",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CopyAll,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Duplicate Songs Recorded: ",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = stats.duplicateSongsCount.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-
-            LinearProgressIndicator(
-                progress = { animatedProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
-        }
-    }
-}
-
-@Composable
-fun InsightItem(label: String, value: String, icon: ImageVector, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(DesignSystem.SpacingMedium).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                text = value,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-fun PostingGoalProgressCard(songsThisMonth: Int) {
-    val targetGoal = 15
-    val progress = remember(songsThisMonth) {
-        (songsThisMonth.toFloat() / targetGoal).coerceIn(0f, 1f)
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                modifier = Modifier.size(40.dp),
+                color = color.copy(alpha = 0.1f),
+                shape = CircleShape
             ) {
-                Column {
-                    Text(
-                        text = "Monthly Goal Progress",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "$songsThisMonth of $targetGoal target posts completed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
                 }
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
-                strokeCap = StrokeCap.Round
-            )
             Text(
-                text = if (progress >= 1f) "🎉 Goal reached! Excellent work, curator!" else "Keep recording posts to hit your monthly curator target.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
             )
-        }
-    }
-}
-
-@Composable
-fun RecentlyPostedFeed(recentSongs: List<SongPost>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (recentSongs.isEmpty()) {
-                Text(
-                    text = "No tracks recorded yet. Head to the 'Songs' tab to log your first post!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                recentSongs.forEachIndexed { index, song ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    RoundedCornerShape(8.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                              )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = song.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = song.movieName,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(song.postDate ?: 0L)),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                    if (index < recentSongs.lastIndex) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-                }
-            }
         }
     }
 }

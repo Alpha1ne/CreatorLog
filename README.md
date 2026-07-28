@@ -5,8 +5,10 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 ## Features
 
 - **Dashboard** — quick overview of posting activity
-- **Songs Tracker** — log every song post: title, movie, singers, music director, language, and notes
+- **Creator Calendar** — see posts and reminders laid out by date
+- **Songs Tracker** — log every song post: title, movie, singers, music director, language, content link, and notes
 - **Idea Vault** — capture content ideas before they turn into posts, with posted-status tracking
+- **Reminders** — schedule notifications for upcoming posts
 - **Backup & Restore** — export/import data as JSON or CSV via clipboard, so nothing is lost if the app is reinstalled
 - **Light / Dark / System theme** support
 
@@ -17,7 +19,18 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Room (local SQLite database)
 - Material 3
 
-## Changelog
+## What's New
+
+**v1.3.0**
+- Added a **Creator Calendar** view to see posts and reminders laid out by date
+- Added **Reminders with notifications** — schedule reminders for upcoming posts, with support for exact-time alerts and automatic rescheduling after a phone restart
+- Added a content link field to song entries, so a post's Instagram link can be saved and opened directly from the app
+- "Movie / Song" field is no longer required when adding a song, for quicker entry
+- Tabs (Dashboard, Songs, Planner) now keep their scroll position and filters when switching between them or rotating the screen
+- Optimized dashboard statistics calculation for better performance with larger libraries
+- Fixed a bug where the Dashboard could get stuck on a loading animation indefinitely on a brand-new install with no data yet
+- Fixed monthly repeat reminders not firing correctly when set on the 29th–31st, in shorter months
+- Notifications now show the app's icon instead of a generic system icon
 
 **v1.2.0**
 - Added music director and language fields to song entries

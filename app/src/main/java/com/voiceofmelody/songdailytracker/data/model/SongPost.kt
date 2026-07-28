@@ -14,5 +14,6 @@ data class SongPost(
     val musicDirector: String = "",
     val language: String = "",
     val postDate: Long? = null,
+    val contentLink: String? = null,
     val isPostedConfirmed: Boolean = false
 )

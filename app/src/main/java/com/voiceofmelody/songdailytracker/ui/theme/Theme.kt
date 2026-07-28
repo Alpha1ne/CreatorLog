@@ -7,42 +7,46 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = InstagramCoral,
+    primary = PrimaryBlue,
     onPrimary = Color.White,
-    secondary = InstagramPurple,
+    secondary = SecondaryPurple,
     onSecondary = Color.White,
-    tertiary = MusicCyan,
+    tertiary = AccentAzure,
     onTertiary = Color.White,
-    background = SlateDarkBackground,
+    background = BackgroundDark,
     onBackground = TextPrimaryDark,
-    surface = SlateDarkSurface,
+    surface = SurfaceDark,
     onSurface = TextPrimaryDark,
-    surfaceVariant = SlateDarkSurfaceVariant,
+    surfaceVariant = CardDark,
     onSurfaceVariant = TextSecondaryDark,
-    error = Color(0xFFEF4444),
+    outline = DividerDark,
+    outlineVariant = DividerDark.copy(alpha = 0.5f),
+    error = StatusReminder,
     onError = Color.White
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = InstagramCoral,
+    primary = PrimaryBlue,
     onPrimary = Color.White,
-    secondary = InstagramPurple,
+    secondary = SecondaryPurple,
     onSecondary = Color.White,
-    tertiary = MusicCyan,
+    tertiary = AccentAzure,
     onTertiary = Color.White,
-    background = Color(0xFFFAFAFE),
-    onBackground = Color(0xFF1F1F24),
-    surface = Color.White,
-    onSurface = Color(0xFF1F1F24),
-    surfaceVariant = Color(0xFFF1F1F5),
-    onSurfaceVariant = Color(0xFF49454F),
-    error = Color(0xFFBA1A1A),
+    background = BackgroundLight,
+    onBackground = TextPrimaryLight,
+    surface = SurfaceLight,
+    onSurface = TextPrimaryLight,
+    surfaceVariant = SurfaceLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = DividerLight,
+    outlineVariant = DividerLight.copy(alpha = 0.5f),
+    error = StatusReminder,
     onError = Color.White
 )
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = true, // Default to true for dark slate look
+    darkTheme: Boolean = true, // Premium feel defaults to dark
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme

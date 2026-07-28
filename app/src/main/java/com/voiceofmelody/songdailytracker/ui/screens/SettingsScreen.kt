@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.theme.DesignSystem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,15 +24,18 @@ fun SettingsScreen(
     onBack: () -> Unit,
     themeMode: Int,
     onThemeModeChanged: (Int) -> Unit,
-    viewModel: TrackerViewModel
+    viewModel: TrackerViewModel,
+    snackbarHostState: SnackbarHostState
 ) {
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(DesignSystem.IconSizeMedium))
                     }
                 }
             )
@@ -42,8 +46,8 @@ fun SettingsScreen(
                 .fillMaxWidth()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(DesignSystem.ScreenPadding),
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.SectionSpacing)
         ) {
             // Appearance Section
             SettingsSection(title = "🎨 Appearance") {
@@ -67,7 +71,7 @@ fun SettingsScreen(
 
             // Backup & Restore Section
             SettingsSection(title = "💾 Backup & Restore") {
-                BackupSection(viewModel = viewModel)
+                BackupSection(viewModel = viewModel, snackbarHostState = snackbarHostState)
             }
 
             // Statistics Placeholder
@@ -85,15 +89,15 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "A personal content management app built for creators to organize songs, ideas, and posting schedules.",
+                        text = "A personal content management platform built for creators to organize content, ideas, and posting schedules.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     
-                    InfoItem(label = "Version", value = "1.2.0")
-                    InfoItem(label = "Build", value = "2026.07.RC2")
+                    InfoItem(label = "Version", value = "1.3.0")
+                    InfoItem(label = "Build", value = "2026.07.V1.3")
                     InfoItem(label = "Developer", value = "ATHUL C")
                     
                     Text(
@@ -133,11 +137,13 @@ fun SettingsScreen(
 
 @Composable
 fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    ElevatedCard(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(DesignSystem.CardPadding), verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
             Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
             content()
         }
@@ -158,11 +164,11 @@ fun InfoItem(label: String, value: String) {
 @Composable
 fun ActionItem(label: String, icon: ImageVector) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable {}.padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().clickable {}.padding(vertical = DesignSystem.SpacingSmall),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(label, fontWeight = FontWeight.Medium)
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(DesignSystem.IconSizeMedium))
+        Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
+        Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
     }
 }

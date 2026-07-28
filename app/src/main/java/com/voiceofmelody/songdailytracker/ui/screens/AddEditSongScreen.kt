@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.ui.SongStatus
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.theme.DesignSystem
+import kotlinx.coroutines.launch
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,7 +30,8 @@ import java.util.*
 fun AddEditSongScreen(
     viewModel: TrackerViewModel,
     editingSong: SongPost? = null,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    snackbarHostState: SnackbarHostState
 ) {
     var title by rememberSaveable { mutableStateOf(editingSong?.title ?: "") }
     var movieName by rememberSaveable { mutableStateOf(editingSong?.movieName ?: "") }
@@ -37,6 +40,7 @@ fun AddEditSongScreen(
     var musicDirector by rememberSaveable { mutableStateOf(editingSong?.musicDirector ?: "") }
     var language by rememberSaveable { mutableStateOf(editingSong?.language ?: "") }
     var postDate by rememberSaveable { mutableStateOf(editingSong?.postDate) }
+    var contentLink by rememberSaveable { mutableStateOf(editingSong?.contentLink ?: "") }
 
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -45,15 +49,18 @@ fun AddEditSongScreen(
 
     val duplicateMatches by viewModel.duplicateMatches.collectAsState()
     val now by viewModel.currentTime.collectAsState()
+    val scope = rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
-    val hasChanges = remember(title, movieName, singers, notes, musicDirector, language, postDate) {
+    val hasChanges = remember(title, movieName, singers, notes, musicDirector, language, postDate, contentLink) {
         title != (editingSong?.title ?: "") ||
         movieName != (editingSong?.movieName ?: "") ||
         singers != (editingSong?.singers ?: "") ||
         notes != (editingSong?.notes ?: "") ||
         musicDirector != (editingSong?.musicDirector ?: "") ||
         language != (editingSong?.language ?: "") ||
-        postDate != editingSong?.postDate
+        postDate != editingSong?.postDate ||
+        contentLink != (editingSong?.contentLink ?: "")
     }
 
     LaunchedEffect(title, movieName, singers) {
@@ -69,51 +76,66 @@ fun AddEditSongScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             TopAppBar(
-                title = { Text(if (editingSong == null) "Record Song" else "Edit Song") },
+                title = { Text(if (editingSong == null) "Add Content" else "Edit Content", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = { if (hasChanges) showDiscardDialog = true else onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(DesignSystem.IconSizeMedium))
                     }
                 },
                 actions = {
+                    val isLinkValid = contentLink.isBlank() || android.util.Patterns.WEB_URL.matcher(contentLink).matches()
                     IconButton(onClick = { 
-                        if (title.isNotBlank() && movieName.isNotBlank()) {
-                            saveSong(viewModel, editingSong, title, movieName, singers, notes, musicDirector, language, postDate, onBack)
+                        if (title.isNotBlank() && isLinkValid) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            saveSong(viewModel, editingSong, title, movieName, singers, notes, musicDirector, language, postDate, contentLink, onBack)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Content saved successfully")
+                            }
                         }
-                    }, enabled = title.isNotBlank() && movieName.isNotBlank()) {
-                        Icon(Icons.Default.Save, contentDescription = "Save")
+                    }, enabled = title.isNotBlank() && isLinkValid) {
+                        Icon(Icons.Default.Save, contentDescription = "Save", modifier = Modifier.size(DesignSystem.IconSizeMedium))
                     }
                 }
             )
         },
         bottomBar = {
-            Surface(shadowElevation = 8.dp) {
+            val isLinkValid = contentLink.isBlank() || android.util.Patterns.WEB_URL.matcher(contentLink).matches()
+            Surface(shadowElevation = 8.dp, tonalElevation = 2.dp) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.fillMaxWidth().padding(DesignSystem.SpacingMedium),
+                    horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingNormal)
                 ) {
-                    OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) {
-                        Text("Cancel")
+                    OutlinedButton(
+                        onClick = onBack, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+                    ) {
+                        Text("Cancel", style = MaterialTheme.typography.labelLarge)
                     }
                     Button(
                         onClick = { 
-                            saveSong(viewModel, editingSong, title, movieName, singers, notes, musicDirector, language, postDate, onBack)
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            saveSong(viewModel, editingSong, title, movieName, singers, notes, musicDirector, language, postDate, contentLink, onBack)
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Content saved successfully")
+                            }
                         },
-                        enabled = title.isNotBlank() && movieName.isNotBlank(),
+                        enabled = title.isNotBlank() && isLinkValid,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
                     ) {
-                        Text("Save Song")
+                        Text("Save Content", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(DesignSystem.ScreenPadding),
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
         ) {
             DuplicateWarningSection(duplicateMatches = duplicateMatches)
 
@@ -123,7 +145,8 @@ fun AddEditSongScreen(
                 singers = singers, onSingersChange = { singers = it },
                 musicDirector = musicDirector, onMusicDirectorChange = { musicDirector = it },
                 language = language, onLanguageChange = { language = it },
-                notes = notes, onNotesChange = { notes = it }
+                notes = notes, onNotesChange = { notes = it },
+                contentLink = contentLink, onContentLinkChange = { contentLink = it }
             )
 
             SchedulingSection(
@@ -170,12 +193,14 @@ private fun saveSong(
     director: String,
     lang: String,
     date: Long?,
+    link: String,
     onSuccess: () -> Unit
 ) {
+    val finalLink = link.ifBlank { null }
     if (editingSong == null) {
-        viewModel.addSongPost(title, movie, singers, notes, director, lang, date)
+        viewModel.addSongPost(title, movie, singers, notes, director, lang, date, finalLink)
     } else {
-        viewModel.updateSongPost(editingSong.id, editingSong.entryNumber, title, movie, singers, notes, director, lang, date)
+        viewModel.updateSongPost(editingSong.id, editingSong.entryNumber, title, movie, singers, notes, director, lang, date, finalLink)
     }
     onSuccess()
 }

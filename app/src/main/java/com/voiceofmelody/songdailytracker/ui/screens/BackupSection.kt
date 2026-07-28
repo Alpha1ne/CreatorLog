@@ -23,14 +23,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
+import com.voiceofmelody.songdailytracker.ui.theme.DesignSystem
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackupSection(viewModel: TrackerViewModel) {
-    val context = LocalContext.current
+fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostState) {
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
 
     // Loading States
     var isOperating by remember { mutableStateOf(value = false) }
@@ -53,7 +55,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 isOperating = false
                 if (success) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    Toast.makeText(context, "Backup created successfully.", Toast.LENGTH_SHORT).show()
+                    scope.launch { snackbarHostState.showSnackbar("Backup created successfully") }
                 }
             }
         }
@@ -71,7 +73,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                     isOperating = false
                     if (success) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, "Backup restored successfully.", Toast.LENGTH_SHORT).show()
+                        scope.launch { snackbarHostState.showSnackbar("Backup restored successfully") }
                     } else restoreErrorMessage = "The selected file is not a valid CreatorLog backup."
                 } else {
                     isOperating = false
@@ -92,7 +94,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 isOperating = false
                 if (success) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    Toast.makeText(context, "Songs exported successfully.", Toast.LENGTH_SHORT).show()
+                    scope.launch { snackbarHostState.showSnackbar("Content Library exported successfully") }
                 }
             }
         }
@@ -110,8 +112,8 @@ fun BackupSection(viewModel: TrackerViewModel) {
                     isOperating = false
                     if (success) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, "Songs imported successfully.", Toast.LENGTH_SHORT).show()
-                    } else restoreErrorMessage = "The selected file is not a valid Songs CSV."
+                        scope.launch { snackbarHostState.showSnackbar("Content Library imported successfully") }
+                    } else restoreErrorMessage = "The selected file is not a valid Content Library CSV."
                 } else {
                     isOperating = false
                 }
@@ -130,7 +132,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                 isOperating = false
                 if (success) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    Toast.makeText(context, "Planner exported successfully.", Toast.LENGTH_SHORT).show()
+                    scope.launch { snackbarHostState.showSnackbar("Planner exported successfully") }
                 }
             }
         }
@@ -148,7 +150,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
                     isOperating = false
                     if (success) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, "Ideas imported successfully.", Toast.LENGTH_SHORT).show()
+                        scope.launch { snackbarHostState.showSnackbar("Ideas imported successfully") }
                     } else restoreErrorMessage = "The selected file is not a valid Ideas CSV."
                 } else {
                     isOperating = false
@@ -159,7 +161,7 @@ fun BackupSection(viewModel: TrackerViewModel) {
 
     Box {
         Column(
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)
         ) {
             if (isOperating) {
                 LinearProgressIndicator(
@@ -188,12 +190,12 @@ fun BackupSection(viewModel: TrackerViewModel) {
 
             // Songs CSV Section
             BackupCategoryCard(
-                title = "Songs Spreadsheet (CSV)",
-                description = "Export song history for Excel/Sheets",
-                icon = Icons.Default.MusicNote,
+                title = "Content Library (CSV)",
+                description = "Export content history for Excel/Sheets",
+                icon = Icons.Default.AutoAwesome,
                 onExport = {
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    createSongsCsvLauncher.launch("CreatorLog_Songs_$date.csv")
+                    createSongsCsvLauncher.launch("CreatorLog_Content_$date.csv")
                 },
                 onImport = {
                     pendingRestoreAction = { openSongsCsvLauncher.launch(arrayOf("text/comma-separated-values", "text/csv")) }
@@ -277,42 +279,43 @@ fun BackupCategoryCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(DesignSystem.CardPadding)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(12.dp))
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(DesignSystem.IconSizeMedium))
+                Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
                 Column {
-                    Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(DesignSystem.SpacingLarge))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)
             ) {
                 Button(
                     onClick = onExport,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
                     enabled = isEnabled
                 ) {
-                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(exportLabel, fontSize = 13.sp)
+                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall))
+                    Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
+                    Text(exportLabel, style = MaterialTheme.typography.labelLarge)
                 }
                 OutlinedButton(
                     onClick = onImport,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
                     enabled = isEnabled
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(importLabel, fontSize = 13.sp)
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall))
+                    Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
+                    Text(importLabel, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
