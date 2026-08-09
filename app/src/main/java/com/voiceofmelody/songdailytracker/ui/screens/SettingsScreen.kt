@@ -27,6 +27,8 @@ fun SettingsScreen(
     viewModel: TrackerViewModel,
     snackbarHostState: SnackbarHostState
 ) {
+    var showWhatsNew by remember { mutableStateOf(false) }
+
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -74,9 +76,13 @@ fun SettingsScreen(
                 BackupSection(viewModel = viewModel, snackbarHostState = snackbarHostState)
             }
 
-            // Statistics Placeholder
-            SettingsSection(title = "📊 Statistics") {
-                Text("Detailed statistics and insights coming soon in a future update.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // What's New Section
+            SettingsSection(title = "✨ What's New") {
+                ActionItem(
+                    label = "View Release Notes", 
+                    icon = Icons.Default.NewReleases,
+                    onClick = { showWhatsNew = true }
+                )
             }
 
             // About Section
@@ -96,8 +102,8 @@ fun SettingsScreen(
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     
-                    InfoItem(label = "Version", value = "1.3.0")
-                    InfoItem(label = "Build", value = "2026.07.V1.3")
+                    InfoItem(label = "Version", value = "1.4.0")
+                    InfoItem(label = "Build", value = "2026.08.V1.4")
                     InfoItem(label = "Developer", value = "ATHUL C")
                     
                     Text(
@@ -133,6 +139,86 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(100.dp))
         }
     }
+
+    if (showWhatsNew) {
+        WhatsNewDialog(onDismiss = { showWhatsNew = false })
+    }
+}
+
+@Composable
+fun WhatsNewDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Got it")
+            }
+        },
+        title = {
+            Column {
+                Text("What's New", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("CreatorLog 1.4.0", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingLarge)
+            ) {
+                WhatsNewSection(
+                    title = "NEW",
+                    items = listOf(
+                        "Promotion Earnings Insights" to "View detailed financial performance directly from the Dashboard.",
+                        "Accurate Monthly Earnings" to "Monthly earnings now reflect actual payments received."
+                    )
+                )
+
+                WhatsNewSection(
+                    title = "IMPROVEMENTS",
+                    items = listOf(
+                        "Faster Startup" to "Improved the app's cold-start experience.",
+                        "Smoother Navigation" to "Improved transitions between Dashboard, Content, and Planner.",
+                        "State Preservation" to "Scroll positions and search/filter states are preserved when switching between sections.",
+                        "Improved Navigation UI" to "Improved navigation icon alignment and rendering."
+                    )
+                )
+
+                WhatsNewSection(
+                    title = "BUG FIXES",
+                    items = listOf(
+                        "Dashboard Loading" to "Fixed the Welcome Card/loading flicker during startup.",
+                        "Promotion Earnings" to "Fixed pending promotions incorrectly affecting monthly earnings.",
+                        "Payment Date" to "Promotions are now attributed to the month the payment was received, rather than the month the promotion was created.",
+                        "Navigation Animation" to "Fixed the remaining navigation bar animation hitch."
+                    )
+                )
+            }
+        },
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge)
+    )
+}
+
+@Composable
+private fun WhatsNewSection(title: String, items: List<Pair<String, String>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.primary
+        )
+        items.forEach { (header, description) ->
+            Column {
+                Text(text = "• $header", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -162,9 +248,9 @@ fun InfoItem(label: String, value: String) {
 }
 
 @Composable
-fun ActionItem(label: String, icon: ImageVector) {
+fun ActionItem(label: String, icon: ImageVector, onClick: () -> Unit = {}) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable {}.padding(vertical = DesignSystem.SpacingSmall),
+        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = DesignSystem.SpacingSmall),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(DesignSystem.IconSizeMedium))

@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import kotlinx.coroutines.Dispatchers
 import com.voiceofmelody.songdailytracker.TrackerTab
 import com.voiceofmelody.songdailytracker.data.model.SongPost
 import com.voiceofmelody.songdailytracker.ui.DuplicateGroup
@@ -51,6 +52,7 @@ import com.voiceofmelody.songdailytracker.ui.ViewMode
 import com.voiceofmelody.songdailytracker.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 import java.text.SimpleDateFormat
 import java.util.*
@@ -142,7 +144,6 @@ fun SongsScreen(
     var isInitialLoading by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         if (isInitialLoading) {
-            delay(100)
             isInitialLoading = false
         }
     }
@@ -165,15 +166,21 @@ fun SongsScreen(
         }
     }
 
-    // Dynamically extract dropdown options
-    val languagesList = remember(allSongs) {
-        allSongs.asSequence().map { it.language.trim() }.filter { it.isNotBlank() }.distinct().sorted().toList()
+    // Background Metadata Processing (O(N) operations moved off-main)
+    val languagesList by produceState<List<String>>(initialValue = emptyList(), allSongs) {
+        value = withContext(Dispatchers.Default) {
+            allSongs?.asSequence()?.map { it.language.trim() }?.filter { it.isNotBlank() }?.distinct()?.sorted()?.toList() ?: emptyList()
+        }
     }
-    val singersList = remember(allSongs) {
-        allSongs.asSequence().flatMap { it.singers.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted().toList()
+    val singersList by produceState<List<String>>(initialValue = emptyList(), allSongs) {
+        value = withContext(Dispatchers.Default) {
+            allSongs?.asSequence()?.flatMap { it.singers.split(",") }?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct()?.sorted()?.toList() ?: emptyList()
+        }
     }
-    val moviesList = remember(allSongs) {
-        allSongs.asSequence().map { it.movieName.trim() }.filter { it.isNotBlank() }.distinct().sorted().toList()
+    val moviesList by produceState<List<String>>(initialValue = emptyList(), allSongs) {
+        value = withContext(Dispatchers.Default) {
+            allSongs?.asSequence()?.map { it.movieName.trim() }?.filter { it.isNotBlank() }?.distinct()?.sorted()?.toList() ?: emptyList()
+        }
     }
 
     // Apply Client-Side Filters & Sort
@@ -188,7 +195,7 @@ fun SongsScreen(
                 DateFilter.SCHEDULED -> list.filter { viewModel.getSongStatus(it, now) == SongStatus.SCHEDULED }
                 DateFilter.NO_DATE -> list.filter { it.postDate == null }
                 DateFilter.DUPLICATE -> list.filter { song ->
-                    allSongs.count { 
+                    (allSongs ?: emptyList()).count { 
                         it.title.lowercase().trim() == song.title.lowercase().trim() &&
                         it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
                         it.singers.lowercase().trim() == song.singers.lowercase().trim()
@@ -291,7 +298,7 @@ fun SongsScreen(
                 }
             }
 
-            if (allSongs.isEmpty() && isInitialLoading) {
+            if (allSongs == null && isInitialLoading) {
                 LazyColumn(
                     contentPadding = PaddingValues(DesignSystem.ScreenPadding, 8.dp, DesignSystem.ScreenPadding, 120.dp),
                     verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
@@ -314,7 +321,7 @@ fun SongsScreen(
                             contentType = { "song_card" }
                         ) { song ->
                             val isExactDuplicate = remember(allSongs, song) {
-                                allSongs.count { 
+                                (allSongs ?: emptyList()).count { 
                                     it.title.lowercase().trim() == song.title.lowercase().trim() &&
                                     it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
                                     it.singers.lowercase().trim() == song.singers.lowercase().trim()
@@ -346,7 +353,7 @@ fun SongsScreen(
                             contentType = { "song_grid_card" }
                         ) { song ->
                             val isExactDuplicate = remember(allSongs, song) {
-                                allSongs.count { 
+                                (allSongs ?: emptyList()).count { 
                                     it.title.lowercase().trim() == song.title.lowercase().trim() &&
                                     it.movieName.lowercase().trim() == song.movieName.lowercase().trim() &&
                                     it.singers.lowercase().trim() == song.singers.lowercase().trim()

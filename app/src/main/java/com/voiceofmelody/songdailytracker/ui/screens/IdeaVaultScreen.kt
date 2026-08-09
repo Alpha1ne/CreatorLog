@@ -46,6 +46,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.voiceofmelody.songdailytracker.TrackerTab
 import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
 import com.voiceofmelody.songdailytracker.ui.IdeaFilter
@@ -119,7 +121,6 @@ fun IdeaVaultScreen(
     var isInitialLoading by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         if (isInitialLoading) {
-            delay(100)
             isInitialLoading = false
         }
     }
@@ -170,10 +171,14 @@ fun IdeaVaultScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IdeaFilter.entries.forEach { filter ->
-                            val count = when (filter) {
-                                IdeaFilter.ALL -> allIdeas.size
-                                IdeaFilter.PENDING -> allIdeas.count { !it.isPosted }
-                                IdeaFilter.POSTED -> allIdeas.count { it.isPosted }
+                            val count by produceState<Int>(initialValue = 0, allIdeas, filter) {
+                                value = withContext(Dispatchers.Default) {
+                                    when (filter) {
+                                        IdeaFilter.ALL -> allIdeas?.size ?: 0
+                                        IdeaFilter.PENDING -> allIdeas?.count { !it.isPosted } ?: 0
+                                        IdeaFilter.POSTED -> allIdeas?.count { it.isPosted } ?: 0
+                                    }
+                                }
                             }
                             FilterChip(
                                 selected = currentFilter == filter,
@@ -206,7 +211,7 @@ fun IdeaVaultScreen(
 
             Spacer(modifier = Modifier.height(DesignSystem.SpacingNormal))
 
-            if (allIdeas.isEmpty() && isInitialLoading) {
+            if (allIdeas == null && isInitialLoading) {
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2),
                     contentPadding = PaddingValues(DesignSystem.ScreenPadding, DesignSystem.SpacingSmall, DesignSystem.ScreenPadding, 120.dp),

@@ -9,6 +9,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +38,7 @@ import com.voiceofmelody.songdailytracker.TrackerTab
 import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
 import com.voiceofmelody.songdailytracker.data.model.Reminder
 import com.voiceofmelody.songdailytracker.data.model.SongPost
+import com.voiceofmelody.songdailytracker.data.model.Promotion
 import com.voiceofmelody.songdailytracker.ui.DashboardStats
 import com.voiceofmelody.songdailytracker.ui.TrackerViewModel
 import com.voiceofmelody.songdailytracker.ui.theme.*
@@ -50,20 +53,23 @@ import java.util.Locale
 fun DashboardScreen(
     viewModel: TrackerViewModel, 
     onNavigateToAddEdit: (SongPost?) -> Unit,
+    onNavigateToPromotions: () -> Unit,
+    onNavigateToAddEditPromotion: (Promotion?) -> Unit,
     onTabSelected: (TrackerTab) -> Unit,
     snackbarHostState: SnackbarHostState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onReady: () -> Unit = {}
 ) {
     val stats by viewModel.statsState.collectAsState()
-    val songPosts by viewModel.allSongPosts.collectAsState()
-    val reminders by viewModel.allReminders.collectAsState()
-    val allIdeas by viewModel.allIdeas.collectAsState()
-    val todayAgenda by viewModel.todayAgendaItems.collectAsState()
-    val now by viewModel.currentTime.collectAsState()
-    val scrollState = rememberSaveable(saver = androidx.compose.foundation.ScrollState.Saver) {
-        androidx.compose.foundation.ScrollState(0)
-    }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(stats) {
+        if (stats != null) {
+            onReady()
+        }
+    }
+
+    val lazyListState = rememberLazyListState()
 
     var selectedDateHub by remember { mutableStateOf<Long?>(null) }
     var hubSongs by remember { mutableStateOf<List<SongPost>>(emptyList()) }
@@ -73,82 +79,108 @@ fun DashboardScreen(
     var showReminderDialog by remember { mutableStateOf(false) }
     var showIdeaDialog by remember { mutableStateOf(false) }
 
-    var isInitialLoading by rememberSaveable { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        if (isInitialLoading) {
-            kotlinx.coroutines.delay(300)
-            isInitialLoading = false
-        }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(DesignSystem.ScreenPadding),
+    LazyColumn(
+        state = lazyListState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(DesignSystem.ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(DesignSystem.SectionSpacing)
     ) {
-        if (isInitialLoading) {
-            DashboardShimmerSkeleton()
-        } else if (stats.isLibraryEmpty) {
-            WelcomeCard(onQuickAddClicked = { onNavigateToAddEdit(null) })
+        if (stats == null) {
+            item {
+                DashboardShimmerSkeleton()
+            }
+        } else if (stats!!.isLibraryEmpty) {
+            item {
+                WelcomeCard(onQuickAddClicked = { onNavigateToAddEdit(null) })
+            }
         } else {
+            val dashboardStats = stats!!
+            
+            // Secondary state collections moved inside LazyColumn scopes where needed
+            
             // 1. Premium Hero Header
-            DashboardPremiumHeroCard(stats = stats)
+            item {
+                DashboardPremiumHeroCard(stats = dashboardStats)
+            }
 
             // 2. Productivity Summary
-            ProductivitySummaryGrid(stats = stats)
+            item {
+                ProductivitySummaryGrid(stats = dashboardStats)
+            }
 
             // 3. Creator Calendar
-            Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
-                SectionTitle(title = "Creator Calendar", icon = Icons.Default.CalendarMonth)
-                CreatorCalendar(
-                    songs = songPosts,
-                    reminders = reminders,
-                    now = now,
-                    onDateSelected = { date, songs, items ->
-                        selectedDateHub = date
-                        hubSongs = songs
-                        hubReminders = items
-                    }
+            item {
+                val songPosts by viewModel.allSongPosts.collectAsState()
+                val reminders by viewModel.allReminders.collectAsState()
+                
+                Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)) {
+                    SectionTitle(title = "Creator Calendar", icon = Icons.Default.CalendarMonth)
+                    CreatorCalendar(
+                        songs = songPosts ?: emptyList(),
+                        reminders = reminders ?: emptyList(),
+                        now = System.currentTimeMillis(),
+                        onDateSelected = { date, songs, items ->
+                            selectedDateHub = date
+                            hubSongs = songs
+                            hubReminders = items
+                        }
+                    )
+                }
+            }
+
+            // 4. Promotion Earnings Insight
+            item {
+                PromotionStatsCard(
+                    stats = dashboardStats.promotionStats,
+                    hasPromotions = dashboardStats.promotionStats.totalEarnings > 0,
+                    onViewAll = onNavigateToPromotions,
+                    onAddPromotion = { onNavigateToAddEditPromotion(null) }
                 )
             }
 
-            // 4. Today's Agenda
-            TodayAgendaSection(
-                todaySongs = todayAgenda.first,
-                todayReminders = todayAgenda.second,
-                pendingIdeasCount = stats.pendingIdeasCount,
-                ideas = allIdeas,
-                onOpenSong = onNavigateToAddEdit,
-                onOpenReminders = {
-                    val today = Calendar.getInstance().apply {
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.timeInMillis
-                    selectedDateHub = today
-                    hubSongs = songPosts.filter { it.postDate == today }
-                    hubReminders = reminders.filter { it.isOccurringOn(today) }
-                },
-                onOpenPlanner = { onTabSelected(TrackerTab.PLANNER) }
-            )
+            // 5. Today's Agenda
+            item {
+                val allIdeas by viewModel.allIdeas.collectAsState()
+                val todayAgenda by viewModel.todayAgendaItems.collectAsState()
+                
+                TodayAgendaSection(
+                    todaySongs = todayAgenda.first,
+                    todayReminders = todayAgenda.second,
+                    pendingIdeasCount = dashboardStats.pendingIdeasCount,
+                    ideas = allIdeas ?: emptyList(),
+                    onOpenSong = onNavigateToAddEdit,
+                    onOpenReminders = {
+                        val today = Calendar.getInstance().apply {
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }.timeInMillis
+                        selectedDateHub = today
+                        hubSongs = todayAgenda.first
+                        hubReminders = todayAgenda.second
+                    },
+                    onOpenPlanner = { onTabSelected(TrackerTab.PLANNER) }
+                )
+            }
 
             // 5. Quick Actions
-            QuickActionsHub(
-                onAddSong = { onNavigateToAddEdit(null) },
-                onAddIdea = { showIdeaDialog = true },
-                onAddReminder = {
-                    reminderToEdit = null
-                    selectedDateHub = System.currentTimeMillis()
-                    showReminderDialog = true
-                }
-            )
+            item {
+                QuickActionsHub(
+                    onAddSong = { onNavigateToAddEdit(null) },
+                    onAddIdea = { showIdeaDialog = true },
+                    onAddReminder = {
+                        reminderToEdit = null
+                        selectedDateHub = System.currentTimeMillis()
+                        showReminderDialog = true
+                    }
+                )
+            }
+            
+            item {
+                Spacer(modifier = Modifier.height(100.dp))
+            }
         }
-
-        // Extra space for Floating Navigation Bar
-        Spacer(modifier = Modifier.height(100.dp))
     }
 
     // Hub Bottom Sheet

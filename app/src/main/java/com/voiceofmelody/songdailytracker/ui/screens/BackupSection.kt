@@ -159,6 +159,44 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
         }
     }
 
+    // Promotions CSV Export
+    val createPromotionsCsvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri: Uri? ->
+        uri?.let {
+            isOperating = true
+            val csv = viewModel.exportBackupCsvPromotions()
+            viewModel.writeToFile(it, csv) { success ->
+                isOperating = false
+                if (success) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    scope.launch { snackbarHostState.showSnackbar("Promotions exported successfully") }
+                }
+            }
+        }
+    }
+
+    // Promotions CSV Import
+    val openPromotionsCsvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            isOperating = true
+            viewModel.readFromFile(it) { content ->
+                if (content != null) {
+                    val success = viewModel.importBackupCsvPromotions(content)
+                    isOperating = false
+                    if (success) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { snackbarHostState.showSnackbar("Promotions imported successfully") }
+                    } else restoreErrorMessage = "The selected file is not a valid Promotions CSV."
+                } else {
+                    isOperating = false
+                }
+            }
+        }
+    }
+
     Box {
         Column(
             verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)
@@ -215,6 +253,22 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
                 },
                 onImport = {
                     pendingRestoreAction = { openIdeasCsvLauncher.launch(arrayOf("text/comma-separated-values", "text/csv")) }
+                    showRestoreConfirm = true
+                },
+                isEnabled = !isOperating
+            )
+
+            // Promotions CSV Section
+            BackupCategoryCard(
+                title = "Promotions Spreadsheet (CSV)",
+                description = "Export your earnings data",
+                icon = Icons.Default.Payments,
+                onExport = {
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                    createPromotionsCsvLauncher.launch("CreatorLog_Promotions_$date.csv")
+                },
+                onImport = {
+                    pendingRestoreAction = { openPromotionsCsvLauncher.launch(arrayOf("text/comma-separated-values", "text/csv")) }
                     showRestoreConfirm = true
                 },
                 isEnabled = !isOperating

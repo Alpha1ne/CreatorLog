@@ -11,6 +11,8 @@ import com.voiceofmelody.songdailytracker.data.model.IdeaVaultEntry
 import com.voiceofmelody.songdailytracker.data.model.Reminder
 import com.voiceofmelody.songdailytracker.data.model.RepeatType
 import com.voiceofmelody.songdailytracker.data.model.SongPost
+import com.voiceofmelody.songdailytracker.data.model.Promotion
+import com.voiceofmelody.songdailytracker.data.model.PaymentStatus
 import com.voiceofmelody.songdailytracker.data.repository.TrackerRepository
 import com.voiceofmelody.songdailytracker.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
@@ -23,15 +25,28 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.text.SimpleDateFormat
 import java.util.*
 
 enum class IdeaFilter { ALL, PENDING, POSTED }
+
+enum class PromotionFilter { ALL, PAID, PENDING, PARTIAL }
 
 enum class ViewMode { LIST, GRID }
 
 enum class MatchLevel { EXACT, POSSIBLE, SIMILAR }
 
 enum class SongStatus { SCHEDULED, POSTED }
+
+data class MonthlyEarning(val monthYear: String, val amount: Double)
+
+data class PromotionStats(
+    val totalEarnings: Double = 0.0,
+    val paidEarnings: Double = 0.0,
+    val pendingEarnings: Double = 0.0,
+    val partiallyPaidEarnings: Double = 0.0,
+    val monthlyEarnings: List<MonthlyEarning> = emptyList()
+)
 
 data class DuplicateGroup(
     val exact: List<SongPost> = emptyList(),
@@ -58,33 +73,50 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     val currentTime: StateFlow<Long> = _currentTime.asStateFlow()
 
     // Raw streams from DB
-    val allSongPosts: StateFlow<List<SongPost>>
-    val allIdeas: StateFlow<List<IdeaVaultEntry>>
-    val allReminders: StateFlow<List<Reminder>>
+    val allSongPosts: StateFlow<List<SongPost>?>
+    val allIdeas: StateFlow<List<IdeaVaultEntry>?>
+    val allReminders: StateFlow<List<Reminder>?>
+    val allPromotions: StateFlow<List<Promotion>?>
 
     // Search Query States
     val searchQuery = MutableStateFlow("")
     val ideasSearchQuery = MutableStateFlow("")
+    val promotionSearchQuery = MutableStateFlow("")
     val ideasFilter = MutableStateFlow(IdeaFilter.ALL)
+    val promotionStatusFilter = MutableStateFlow(PromotionFilter.ALL)
+    val promotionViewMode = MutableStateFlow(ViewMode.LIST)
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao(), database.reminderDao())
+        repository = TrackerRepository(database.songPostDao(), database.ideaVaultDao(), database.reminderDao(), database.promotionDao())
         
         allSongPosts = repository.allSongPosts
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .onEach { 
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         allIdeas = repository.allIdeas
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .onEach { 
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         allReminders = repository.allReminders
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .onEach { 
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+        allPromotions = repository.allPromotions
+            .onEach { 
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         // Setup strategic time refresh for content scheduling
         viewModelScope.launch {
             allSongPosts.collect { songs ->
-                updateCurrentTime()
-                scheduleNextRefresh(songs)
+                if (songs != null) {
+                    updateCurrentTime()
+                    scheduleNextRefresh(songs)
+                }
             }
         }
     }
@@ -136,6 +168,13 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val searchedPromotions: StateFlow<List<Promotion>> = promotionSearchQuery
+        .flatMapLatest { query ->
+            repository.searchPromotions(query)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Live Duplication Alert State (Grouped)
     private val _duplicateMatches = MutableStateFlow(DuplicateGroup())
@@ -371,22 +410,90 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // --- Promotion CRUD ---
+    fun addPromotion(title: String, amount: Double, status: PaymentStatus, client: String?, link: String?, notes: String?, paymentDate: Long?) {
+        viewModelScope.launch {
+            repository.insertPromotion(Promotion(
+                promotionTitle = title.trim(),
+                amount = amount,
+                paymentStatus = status,
+                client = client?.trim(),
+                contentLink = link?.trim(),
+                notes = notes?.trim(),
+                paymentDate = paymentDate?.let { normalizeDateToDayStart(it) }
+            ))
+        }
+    }
+
+    fun updatePromotion(id: Int, title: String, amount: Double, status: PaymentStatus, client: String?, link: String?, notes: String?, createdAt: Long, paymentDate: Long?) {
+        viewModelScope.launch {
+            repository.updatePromotion(Promotion(
+                id = id,
+                promotionTitle = title.trim(),
+                amount = amount,
+                paymentStatus = status,
+                client = client?.trim(),
+                contentLink = link?.trim(),
+                notes = notes?.trim(),
+                createdAt = createdAt,
+                paymentDate = paymentDate?.let { normalizeDateToDayStart(it) }
+            ))
+        }
+    }
+
+    private var lastDeletedPromotion: Promotion? = null
+    fun deletePromotion(promotion: Promotion) {
+        viewModelScope.launch {
+            lastDeletedPromotion = promotion
+            repository.deletePromotion(promotion)
+        }
+    }
+
+    fun undoDeletePromotion() {
+        lastDeletedPromotion?.let { promo ->
+            viewModelScope.launch {
+                repository.insertPromotion(promo)
+                lastDeletedPromotion = null
+            }
+        }
+    }
+
     // --- Dashboard Stats Calculations ---
-    val statsState = combine(allSongPosts, allIdeas, allReminders, currentTime) { songs, ideas, reminders, now ->
-        calculateStats(songs, ideas, reminders, now)
-    }.distinctUntilChanged()
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStats())
+    val statsState: StateFlow<DashboardStats?> = combine(
+        allSongPosts,
+        allIdeas,
+        allReminders,
+        allPromotions,
+        currentTime
+    ) { songs, ideas, reminders, promotions, now ->
+        val res = if (songs == null || ideas == null || reminders == null || promotions == null) {
+            null
+        } else {
+            calculateStats(songs, ideas, reminders, promotions, now)
+        }
+        res
+    }
+    .flowOn(Dispatchers.Default)
+    .distinctUntilChanged()
+    .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val todayAgendaItems = combine(allSongPosts, allReminders, currentTime) { songs, reminders, now ->
-        val today = normalizeDateToDayStart(now)
-        val todaySongs = songs.filter { it.postDate == today }
-        val todayReminders = reminders.filter { it.isOccurringOn(today) }
-        todaySongs to todayReminders
-    }.distinctUntilChanged()
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList<SongPost>() to emptyList<Reminder>())
+        val res = if (songs == null || reminders == null) {
+            emptyList<SongPost>() to emptyList<Reminder>()
+        } else {
+            val today = normalizeDateToDayStart(now)
+            val todaySongs = songs.filter { it.postDate == today }
+            val todayReminders = reminders.filter { it.isOccurringOn(today) }
+            todaySongs to todayReminders
+        }
+        res
+    }
+    .flowOn(Dispatchers.Default)
+    .distinctUntilChanged()
+    .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList<SongPost>() to emptyList<Reminder>())
 
-    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>, reminders: List<Reminder>, now: Long): DashboardStats {
-        if (songs.isEmpty() && ideas.isEmpty() && reminders.isEmpty()) {
+    private fun calculateStats(songs: List<SongPost>, ideas: List<IdeaVaultEntry>, reminders: List<Reminder>, promotions: List<Promotion>, now: Long): DashboardStats {
+        if (songs.isEmpty() && ideas.isEmpty() && reminders.isEmpty() && promotions.isEmpty()) {
             return DashboardStats(isLibraryEmpty = true)
         }
 
@@ -512,7 +619,65 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             favouritePostingDay = favDayName,
             mostUsedCategory = mostUsedCategory,
             activityHeatmap = heatmapMap,
-            totalReminders = reminders.size
+            totalReminders = reminders.size,
+            promotionStats = calculatePromotionStats(promotions)
+        )
+    }
+
+    private fun calculatePromotionStats(promotions: List<Promotion>): PromotionStats {
+        if (promotions.isEmpty()) return PromotionStats()
+
+        var total = 0.0
+        var paid = 0.0
+        var pending = 0.0
+        var partially = 0.0
+
+        val monthlyMap = mutableMapOf<String, Double>()
+        val cal = Calendar.getInstance()
+        val internalKeySdf = SimpleDateFormat("yyyy-MM", Locale.getDefault())
+        val displayLabelSdf = SimpleDateFormat("MMM", Locale.getDefault())
+
+        // Last 6 months window initialization
+        val last6MonthsInfo = mutableListOf<Pair<String, String>>() // InternalKey to DisplayLabel
+        for (i in 5 downTo 0) {
+            val c = Calendar.getInstance()
+            c.add(Calendar.MONTH, -i)
+            val internalKey = internalKeySdf.format(c.time)
+            val displayLabel = displayLabelSdf.format(c.time)
+            last6MonthsInfo.add(internalKey to displayLabel)
+            monthlyMap[internalKey] = 0.0
+        }
+
+        promotions.forEach { promo ->
+            total += promo.amount
+            when (promo.paymentStatus) {
+                PaymentStatus.PAID -> {
+                    paid += promo.amount
+                    
+                    // FIX 1 & 2: Only PAID promotions contribute to the monthly chart, using paymentDate.
+                    // FIX 3: Fallback to createdAt if paymentDate is null.
+                    cal.timeInMillis = promo.paymentDate ?: promo.createdAt
+                    val internalKey = internalKeySdf.format(cal.time)
+                    
+                    if (monthlyMap.containsKey(internalKey)) {
+                        monthlyMap[internalKey] = monthlyMap[internalKey]!! + promo.amount
+                    }
+                }
+                PaymentStatus.PENDING -> pending += promo.amount
+                PaymentStatus.PARTIALLY_PAID -> partially += promo.amount
+            }
+        }
+
+        val monthlyEarningsList = last6MonthsInfo.map { (key, label) ->
+            MonthlyEarning(label, monthlyMap[key] ?: 0.0)
+        }
+
+        return PromotionStats(
+            totalEarnings = total,
+            paidEarnings = paid,
+            pendingEarnings = pending,
+            partiallyPaidEarnings = partially,
+            monthlyEarnings = monthlyEarningsList
         )
     }
 
@@ -581,7 +746,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         return try {
             val root = JSONObject()
             val songsArray = JSONArray()
-            allSongPosts.value.forEach { song ->
+            allSongPosts.value?.forEach { song ->
                 songsArray.put(JSONObject().apply {
                     put("id", song.id)
                     put("entryNumber", song.entryNumber)
@@ -599,7 +764,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             root.put("songs", songsArray)
 
             val ideasArray = JSONArray()
-            allIdeas.value.forEach { idea ->
+            allIdeas.value?.forEach { idea ->
                 ideasArray.put(JSONObject().apply {
                     put("id", idea.id)
                     put("title", idea.title)
@@ -615,7 +780,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             root.put("ideas", ideasArray)
 
             val remindersArray = JSONArray()
-            allReminders.value.forEach { reminder ->
+            allReminders.value?.forEach { reminder ->
                 remindersArray.put(JSONObject().apply {
                     put("id", reminder.id)
                     put("title", reminder.title)
@@ -629,6 +794,22 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 })
             }
             root.put("reminders", remindersArray)
+
+            val promotionsArray = JSONArray()
+            allPromotions.value?.forEach { promo ->
+                promotionsArray.put(JSONObject().apply {
+                    put("id", promo.id)
+                    put("promotionTitle", promo.promotionTitle)
+                    put("amount", promo.amount)
+                    put("paymentStatus", promo.paymentStatus.name)
+                    put("client", promo.client ?: JSONObject.NULL)
+                    put("contentLink", promo.contentLink ?: JSONObject.NULL)
+                    put("notes", promo.notes ?: JSONObject.NULL)
+                    put("createdAt", promo.createdAt)
+                    put("paymentDate", promo.paymentDate ?: JSONObject.NULL)
+                })
+            }
+            root.put("promotions", promotionsArray)
 
             root.toString(4)
         } catch (_: Exception) { "" }
@@ -734,6 +915,27 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             }
+            if (root.has("promotions")) {
+                val promoArray = root.getJSONArray("promotions")
+                for (i in 0 until promoArray.length()) {
+                    val pObj = promoArray.getJSONObject(i)
+                    viewModelScope.launch {
+                        try {
+                            if (!pObj.has("promotionTitle") || !pObj.has("amount")) return@launch
+                            repository.insertPromotion(Promotion(
+                                promotionTitle = pObj.getString("promotionTitle"),
+                                amount = pObj.getDouble("amount"),
+                                paymentStatus = PaymentStatus.valueOf(pObj.optString("paymentStatus", "PENDING")),
+                                client = if (pObj.isNull("client")) null else pObj.getString("client"),
+                                contentLink = if (pObj.isNull("contentLink")) null else pObj.getString("contentLink"),
+                                notes = if (pObj.isNull("notes")) null else pObj.getString("notes"),
+                                createdAt = pObj.optLong("createdAt", System.currentTimeMillis()),
+                                paymentDate = if (pObj.isNull("paymentDate")) null else normalizeDateToDayStart(pObj.getLong("paymentDate"))
+                            ))
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
             true
         } catch (_: Exception) { false }
     }
@@ -742,7 +944,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun exportBackupCsvSongs(): String {
         val sb = StringBuilder()
         sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate,contentLink,isPostedConfirmed\n")
-        allSongPosts.value.forEach { song ->
+        allSongPosts.value?.forEach { song ->
             sb.append("${song.id},")
               .append("${song.entryNumber},")
               .append("\"${song.title.replace("\"", "\"\"")}\",")
@@ -761,7 +963,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun exportBackupCsvIdeas(): String {
         val sb = StringBuilder()
         sb.append("id,title,content,category,color,isPosted,createdAt,updatedAt,isPinned\n")
-        allIdeas.value.forEach { idea ->
+        allIdeas.value?.forEach { idea ->
             sb.append("${idea.id},")
               .append("\"${idea.title.replace("\"", "\"\"")}\",")
               .append("\"${idea.content.replace("\"", "\"\"")}\",")
@@ -778,7 +980,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun exportBackupCsvReminders(): String {
         val sb = StringBuilder()
         sb.append("id,title,note,reminderDate,reminderTime,notificationsEnabled,colorLabel,createdAt,updatedAt\n")
-        allReminders.value.forEach { reminder ->
+        allReminders.value?.forEach { reminder ->
             sb.append("${reminder.id},")
               .append("\"${reminder.title.replace("\"", "\"\"")}\",")
               .append("\"${reminder.note.replace("\"", "\"\"")}\",")
@@ -788,6 +990,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("\"${(reminder.colorLabel ?: "").replace("\"", "\"\"")}\",")
               .append("${reminder.createdAt},")
               .append("${reminder.updatedAt}\n")
+        }
+        return sb.toString()
+    }
+
+    fun exportBackupCsvPromotions(): String {
+        val sb = StringBuilder()
+        sb.append("id,promotionTitle,amount,paymentStatus,client,contentLink,notes,createdAt,paymentDate\n")
+        allPromotions.value?.forEach { promo ->
+            sb.append("${promo.id},")
+              .append("\"${promo.promotionTitle.replace("\"", "\"\"")}\",")
+              .append("${promo.amount},")
+              .append("${promo.paymentStatus.name},")
+              .append("\"${(promo.client ?: "").replace("\"", "\"\"")}\",")
+              .append("\"${(promo.contentLink ?: "").replace("\"", "\"\"")}\",")
+              .append("\"${(promo.notes ?: "").replace("\"", "\"\"")}\",")
+              .append("${promo.createdAt},")
+              .append("${promo.paymentDate ?: ""}\n")
         }
         return sb.toString()
     }
@@ -946,6 +1165,57 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         } catch (_: Exception) { false }
     }
 
+    fun importBackupCsvPromotions(csvString: String): Boolean {
+        if (csvString.isBlank()) return false
+        return try {
+            val lines = csvString.lines()
+            if (lines.size < 2) return false
+            
+            val header = lines.first().split(",")
+            val titleIdx = header.indexOf("promotionTitle")
+            val amountIdx = header.indexOf("amount")
+            val statusIdx = header.indexOf("paymentStatus")
+            val clientIdx = header.indexOf("client")
+            val linkIdx = header.indexOf("contentLink")
+            val notesIdx = header.indexOf("notes")
+            val createdIdx = header.indexOf("createdAt")
+            val paymentDateIdx = header.indexOf("paymentDate")
+
+            for (i in 1 until lines.size) {
+                val line = lines[i]
+                if (line.isBlank()) continue
+                val parts = parseCsvLine(line)
+                if (parts.size < 3) continue
+                
+                viewModelScope.launch {
+                    try {
+                        val title = if (titleIdx != -1 && parts.size > titleIdx) parts[titleIdx] else parts[1]
+                        val amount = if (amountIdx != -1 && parts.size > amountIdx) parts[amountIdx].toDoubleOrNull() ?: 0.0 else 0.0
+                        if (title.isBlank() || amount <= 0.0) return@launch
+
+                        val paymentDate = if (paymentDateIdx != -1 && parts.size > paymentDateIdx && parts[paymentDateIdx].isNotBlank()) {
+                            parts[paymentDateIdx].toLongOrNull()?.let { normalizeDateToDayStart(it) }
+                        } else null
+
+                        repository.insertPromotion(Promotion(
+                            promotionTitle = title,
+                            amount = amount,
+                            paymentStatus = if (statusIdx != -1 && parts.size > statusIdx) {
+                                try { PaymentStatus.valueOf(parts[statusIdx]) } catch(_: Exception) { PaymentStatus.PENDING }
+                            } else PaymentStatus.PENDING,
+                            client = if (clientIdx != -1 && parts.size > clientIdx && parts[clientIdx].isNotBlank()) parts[clientIdx] else null,
+                            contentLink = if (linkIdx != -1 && parts.size > linkIdx && parts[linkIdx].isNotBlank()) parts[linkIdx] else null,
+                            notes = if (notesIdx != -1 && parts.size > notesIdx && parts[notesIdx].isNotBlank()) parts[notesIdx] else null,
+                            createdAt = if (createdIdx != -1 && parts.size > createdIdx) parts[createdIdx].toLongOrNull() ?: System.currentTimeMillis() else System.currentTimeMillis(),
+                            paymentDate = paymentDate
+                        ))
+                    } catch (_: Exception) {}
+                }
+            }
+            true
+        } catch (_: Exception) { false }
+    }
+
     private fun parseCsvLine(line: String): List<String> {
         val result = mutableListOf<String>()
         val current = StringBuilder()
@@ -1037,5 +1307,6 @@ data class DashboardStats(
     val favouritePostingDay: String = "N/A",
     val mostUsedCategory: String = "N/A",
     val activityHeatmap: Map<Long, Int> = emptyMap(),
-    val totalReminders: Int = 0
+    val totalReminders: Int = 0,
+    val promotionStats: PromotionStats = PromotionStats()
 )

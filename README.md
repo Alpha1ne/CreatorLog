@@ -1,13 +1,14 @@
 # CreatorLog — Content Tracker
 
-An Android app built to help an Instagram music page (Voice Of Melody) track its posting history and content ideas in one place — no more scrolling back through the feed to remember what's already been posted.
+An Android app built to help an Instagram music page (Voice Of Melody) track its posting history, content ideas, and paid promotions in one place — no more scrolling back through the feed to remember what's already been posted.
 
 ## Features
 
-- **Dashboard** — quick overview of posting activity
+- **Dashboard** — quick overview of posting activity and promotion earnings
 - **Creator Calendar** — see posts and reminders laid out by date
 - **Songs Tracker** — log every song post: title, movie, singers, music director, language, content link, and notes
 - **Idea Vault** — capture content ideas before they turn into posts, with posted-status tracking
+- **Promotions Tracker** — track paid promotions/sponsorships: client, amount, payment status, payment date, and monthly earnings insights
 - **Reminders** — schedule notifications for upcoming posts
 - **Backup & Restore** — export/import data as JSON or CSV via clipboard, so nothing is lost if the app is reinstalled
 - **Light / Dark / System theme** support
@@ -21,9 +22,21 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 
 ## What's New
 
+**v1.4.0**
+- Added Promotion Earnings Insights — view detailed financial performance directly from the Dashboard
+- Monthly earnings now reflect actual payments received, based on a new payment date field (instead of when the promotion was created)
+- Faster cold-start experience
+- Smoother navigation transitions between Dashboard, Content, and Planner tabs
+- Scroll positions and search/filter states are now preserved when switching between sections
+- Improved navigation bar icon alignment and rendering
+- Fixed a bug where pending/unpaid promotions were incorrectly counted toward monthly earnings
+- Fixed a Dashboard loading flicker on startup
+- Fixed a remaining navigation bar animation hitch
+- Removed leftover internal debug/performance logging
+
 **v1.3.0**
-- Added a **Creator Calendar** view to see posts and reminders laid out by date
-- Added **Reminders with notifications** — schedule reminders for upcoming posts, with support for exact-time alerts and automatic rescheduling after a phone restart
+- Added a Creator Calendar view to see posts and reminders laid out by date
+- Added Reminders with notifications — schedule reminders for upcoming posts, with support for exact-time alerts and automatic rescheduling after a phone restart
 - Added a content link field to song entries, so a post's Instagram link can be saved and opened directly from the app
 - "Movie / Song" field is no longer required when adding a song, for quicker entry
 - Tabs (Dashboard, Songs, Planner) now keep their scroll position and filters when switching between them or rotating the screen
