@@ -33,6 +33,7 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Fixed a Dashboard loading flicker on startup
 - Fixed a remaining navigation bar animation hitch
 - Removed leftover internal debug/performance logging
+- Fixed a bug where restoring a JSON backup would reset all Idea Vault entries' posted-status to "not posted"
 
 **v1.3.0**
 - Added a Creator Calendar view to see posts and reminders laid out by date
