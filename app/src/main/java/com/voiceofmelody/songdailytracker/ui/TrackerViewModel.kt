@@ -879,6 +879,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                                 content = iObj.getString("content"),
                                 category = iObj.optString("category", ""),
                                 color = if (iObj.isNull("color")) null else iObj.getLong("color"),
+                                isPosted = iObj.optBoolean("isPosted", false),
                                 createdAt = iObj.optLong("createdAt", System.currentTimeMillis()),
                                 updatedAt = iObj.optLong("updatedAt", System.currentTimeMillis()),
                                 isPinned = iObj.optBoolean("isPinned", false)
