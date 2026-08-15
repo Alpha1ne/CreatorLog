@@ -50,7 +50,8 @@ fun AddEditPromotionScreen(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     val amount = amountText.toDoubleOrNull() ?: 0.0
-    val isAmountValid = amount > 0.0
+    // FIX: Amount is optional for Pending/Partial, but mandatory for Paid
+    val isAmountValid = if (status == PaymentStatus.PAID) amount > 0.0 else (amountText.isBlank() || amount >= 0.0)
     val isLinkValid = contentLink.isBlank() || android.util.Patterns.WEB_URL.matcher(contentLink).matches()
     val canSave = title.isNotBlank() && isAmountValid && isLinkValid
 
@@ -137,12 +138,18 @@ fun AddEditPromotionScreen(
                     OutlinedTextField(
                         value = amountText, 
                         onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) amountText = it }, 
-                        label = { Text("Amount *") }, 
+                        label = { Text(if (status == PaymentStatus.PAID) "Amount *" else "Amount (Optional)") }, 
                         placeholder = { Text("e.g., 5000") }, 
                         prefix = { Text("₹") },
                         modifier = Modifier.fillMaxWidth(), 
                         shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                        supportingText = if (status == PaymentStatus.PAID && amountText.isBlank()) {
+                            { Text("Amount is required for Paid status") }
+                        } else if (status != PaymentStatus.PAID) {
+                            { Text("Add when payment amount is known") }
+                        } else null,
+                        isError = status == PaymentStatus.PAID && amountText.isBlank()
                     )
 
                     Text("Payment Status *", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)

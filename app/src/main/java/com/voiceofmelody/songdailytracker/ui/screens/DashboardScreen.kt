@@ -81,8 +81,13 @@ fun DashboardScreen(
 
     LazyColumn(
         state = lazyListState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(DesignSystem.ScreenPadding),
+        modifier = modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(
+            start = DesignSystem.ScreenPadding,
+            top = DesignSystem.ScreenPadding,
+            end = DesignSystem.ScreenPadding,
+            bottom = 116.dp // Clear the Floating Nav Bar
+        ),
         verticalArrangement = Arrangement.spacedBy(DesignSystem.SectionSpacing)
     ) {
         if (stats == null) {
@@ -178,7 +183,7 @@ fun DashboardScreen(
             }
             
             item {
-                Spacer(modifier = Modifier.height(100.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

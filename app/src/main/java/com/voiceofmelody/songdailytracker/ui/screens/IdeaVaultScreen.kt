@@ -130,7 +130,7 @@ fun IdeaVaultScreen(
     var ideaToDelete by remember { mutableStateOf<IdeaVaultEntry?>(null) }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
             // Unified Search Toolbar Row
             Row(
                 modifier = Modifier
@@ -191,18 +191,20 @@ fun IdeaVaultScreen(
                                     ) 
                                 },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    selectedLabelColor = MaterialTheme.colorScheme.primary,
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 ),
                                 shape = RoundedCornerShape(DesignSystem.CornerRadiusChip),
                                 border = FilterChipDefaults.filterChipBorder(
                                     enabled = true,
                                     selected = currentFilter == filter,
                                     borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    selectedBorderColor = MaterialTheme.colorScheme.primary
                                 ),
-                                modifier = Modifier.height(DesignSystem.ChipHeight)
+                                modifier = Modifier.height(36.dp)
                             )
                         }
                     }
@@ -284,7 +286,8 @@ fun IdeaVaultScreen(
             onClick = { showAddDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp)
+                .navigationBarsPadding() // Account for system navigation bar
+                .padding(end = 20.dp, bottom = 116.dp) // Clear the Floating Nav Bar (95dp) + visual gap (21dp)
                 .testTag("add_idea_fab"),
             contentDescription = "Add Idea"
         )
@@ -367,161 +370,110 @@ fun IdeaCard(
         sdf.format(Date(idea.updatedAt))
     }
 
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(DesignSystem.AnimationDurationMedium)) + scaleIn(tween(DesignSystem.AnimationDurationMedium), initialScale = 0.95f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .workspacePressAnimation()
+            .clickable(onClick = onClick)
+            .testTag("idea_card_${idea.id}"),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusMedium), // 16.dp
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            width = DesignSystem.BorderThickness,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .workspacePressAnimation()
-                .clickable(
-                    onClick = onClick
-                )
-                .testTag("idea_card_${idea.id}"),
-            shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = 1.dp,
-                pressedElevation = 4.dp
-            )
-        ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                // Category Accent (Left Border)
-                if (idea.color != null) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .width(6.dp)
-                            .fillMaxHeight()
-                            .background(Color(idea.color))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Left Accent Strip
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(
+                        if (idea.color != null) Color(idea.color) 
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                     )
-                }
+            )
 
-                Column(modifier = Modifier.padding(DesignSystem.CardPadding)) {
-                    // TOP ROW: Category & Pin
+            Column(modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
+                // Top Row: Category & Status & Pin
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AssistChip(
-                            onClick = { /* Chip is non-functional in card */ },
-                            label = { Text(idea.category ?: "Idea", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold) },
-                            leadingIcon = {
-                                Icon(
-                                    getCategoryIcon(idea.category),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (idea.color != null) Color(idea.color) else MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            shape = CircleShape,
-                            border = AssistChipDefaults.assistChipBorder(
-                                enabled = true,
-                                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                            ),
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = if (idea.color != null) Color(idea.color).copy(alpha = 0.05f) 
-                                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            ),
-                            modifier = Modifier.height(DesignSystem.ChipHeight)
-                        )
-                        
-                        IconButton(
-                            onClick = onPinToggle,
-                            modifier = Modifier.size(32.dp).alpha(if (idea.isPinned) 1f else 0.4f)
-                        ) {
-                            Icon(
-                                imageVector = if (idea.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = "Pin",
-                                tint = if (idea.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        CategoryBadge(category = idea.category, color = idea.color)
+                        StatusBadge(isPosted = idea.isPosted)
                     }
-
-                    Spacer(modifier = Modifier.height(DesignSystem.SpacingMedium))
-
-                    // TITLE
-                    Text(
-                        text = idea.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textDecoration = if (idea.isPosted) TextDecoration.LineThrough else TextDecoration.None,
-                        color = if (idea.isPosted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Spacer(modifier = Modifier.height(DesignSystem.SpacingSmall))
-
-                    // STATUS BADGE
-                    Surface(
-                        color = if (idea.isPosted) StatusPosted.copy(alpha = 0.12f) else StatusScheduled.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(DesignSystem.CornerRadiusBadge),
-                        modifier = Modifier.height(DesignSystem.StatusBadgeHeight)
+                    
+                    IconButton(
+                        onClick = onPinToggle,
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(if (idea.isPosted) StatusPosted else StatusScheduled, CircleShape)
-                            )
-                            Text(
-                                text = if (idea.isPosted) "Posted" else "Pending",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (idea.isPosted) StatusPosted else StatusScheduled
-                            )
-                        }
+                        Icon(
+                            imageVector = if (idea.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = "Pin",
+                            tint = if (idea.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(DesignSystem.SpacingMedium))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    // DESCRIPTION
+                // Middle: Title & Description
+                Text(
+                    text = idea.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textDecoration = if (idea.isPosted) TextDecoration.LineThrough else TextDecoration.None,
+                    color = if (idea.isPosted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
+                )
+
+                if (idea.content.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = idea.content,
                         style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 6,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.alpha(if (idea.isPosted) 0.6f else 1.0f)
                     )
+                }
 
-                    Spacer(modifier = Modifier.height(DesignSystem.SpacingLarge))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    // FOOTER: Date & Delete
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                // Bottom: Metadata & Actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Modified $dateText",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Text(
-                            text = "Modified $dateText",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp)
                         )
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(48.dp).alpha(0.3f) // Standard touch target
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -538,45 +490,47 @@ fun IdeaGridCard(
     onDelete: () -> Unit
 ) {
     val dateText = remember(idea.updatedAt) {
-        val sdf = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+        val sdf = SimpleDateFormat("dd MMM", Locale.getDefault())
         sdf.format(Date(idea.updatedAt))
     }
 
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(DesignSystem.AnimationDurationMedium)) + scaleIn(tween(DesignSystem.AnimationDurationMedium), initialScale = 0.95f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .workspacePressAnimation()
+            .clickable(onClick = onClick)
+            .testTag("idea_grid_card_${idea.id}"),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusMedium),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            width = DesignSystem.BorderThickness,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .workspacePressAnimation()
-                .clickable(
-                    onClick = onClick
-                )
-                .testTag("idea_grid_card_${idea.id}"),
-            shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = 1.dp,
-                pressedElevation = 4.dp
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Left Accent Strip
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(
+                        if (idea.color != null) Color(idea.color) 
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
             )
-        ) {
-            Column(modifier = Modifier.padding(DesignSystem.SpacingMedium)) {
-                // TOP: Category Icon & Pin
+
+            Column(modifier = Modifier.padding(12.dp)) {
+                // Top Row: Icon & Pin
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(DesignSystem.IconSizeLarge)
+                            .size(32.dp)
                             .background(
                                 color = if (idea.color != null) Color(idea.color).copy(alpha = 0.1f) 
                                         else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
@@ -594,71 +548,75 @@ fun IdeaGridCard(
                     
                     IconButton(
                         onClick = onPinToggle,
-                        modifier = Modifier.size(24.dp).alpha(if (idea.isPinned) 1f else 0.4f)
+                        modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = if (idea.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
                             contentDescription = "Pin",
-                            tint = if (idea.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
+                            tint = if (idea.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // TITLE
+                // Middle: Title
                 Text(
                     text = idea.title,
                     style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textDecoration = if (idea.isPosted) TextDecoration.LineThrough else TextDecoration.None,
                     color = if (idea.isPosted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
                 )
 
-                Spacer(modifier = Modifier.height(DesignSystem.SpacingSmall))
+                if (idea.content.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = idea.content,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.alpha(if (idea.isPosted) 0.6f else 1.0f)
+                    )
+                }
 
-                // CONTENT
-                Text(
-                    text = idea.content,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 8,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.alpha(if (idea.isPosted) 0.6f else 1.0f)
-                )
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Spacer(modifier = Modifier.height(DesignSystem.SpacingMedium))
-
-                // FOOTER: Status Icon & Date & Delete
+                // Bottom: Status & Date
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
+                                .size(6.dp)
                                 .background(if (idea.isPosted) StatusPosted else StatusScheduled, CircleShape)
                         )
                         Text(
-                            text = dateText.split(",")[0], // Just date for grid
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
+                            text = dateText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                     }
                     
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(48.dp).alpha(0.3f)
+                        modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.4f),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
@@ -668,14 +626,105 @@ fun IdeaGridCard(
 }
 
 @Composable
+private fun CategoryBadge(category: String?, color: Long?) {
+    Surface(
+        color = if (color != null) Color(color).copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusBadge),
+        modifier = Modifier.height(20.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                getCategoryIcon(category),
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = if (color != null) Color(color) else MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = category ?: "Idea",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (color != null) Color(color) else MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusBadge(isPosted: Boolean) {
+    val color = if (isPosted) StatusPosted else StatusScheduled
+    Surface(
+        color = color.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusBadge),
+        modifier = Modifier.height(20.dp)
+    ) {
+        Text(
+            text = if (isPosted) "Posted" else "Pending",
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            color = color
+        )
+    }
+}
+
+@Composable
 fun EmptyIdeasState(isSearchActive: Boolean, onAddFirst: () -> Unit) {
-    PremiumEmptyState(
-        icon = if (isSearchActive) Icons.Default.SearchOff else Icons.Default.AutoAwesome,
-        title = if (isSearchActive) "No ideas found" else "Creator Workspace is empty",
-        subtitle = if (isSearchActive) "Try different keywords or reset your filters." else "Capture your next great idea. Your creative spark starts here!",
-        actionLabel = if (isSearchActive) null else "Create First Idea",
-        onAction = if (isSearchActive) null else onAddFirst
-    )
+    Box(modifier = Modifier.fillMaxSize().padding(DesignSystem.SpacingXXLarge), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingLarge)
+        ) {
+            Surface(
+                modifier = Modifier.size(100.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                shape = CircleShape
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isSearchActive) Icons.Default.SearchOff else Icons.Outlined.Lightbulb,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
+            
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingTiny)) {
+                Text(
+                    text = if (isSearchActive) "No ideas found" else "Workspace Empty",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = if (isSearchActive) "Try different keywords or reset filters." 
+                           else "Capture your next big idea. Start planning your creative journey here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = DesignSystem.SpacingMedium)
+                )
+            }
+            
+            if (!isSearchActive) {
+                Spacer(modifier = Modifier.height(DesignSystem.SpacingSmall))
+                Button(
+                    onClick = onAddFirst,
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusMedium)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
+                    Text("New Idea")
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -712,15 +761,24 @@ fun IdeaFormDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingMedium)
+                verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingLarge)
             ) {
-            if (createdDateText != null) {
-                Text(
-                    text = "Created on $createdDateText",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                if (createdDateText != null) {
+                    Text(
+                        text = "Created on $createdDateText",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+
+                // UI FIX: Guaranteed visible borders using onSurfaceVariant for high contrast
+                val textFieldColors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    errorBorderColor = MaterialTheme.colorScheme.error,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
 
                 OutlinedTextField(
                     value = title,
@@ -728,117 +786,125 @@ fun IdeaFormDialog(
                     label = { Text("Title") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
+                    colors = textFieldColors
                 )
 
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingTiny)) {
                     OutlinedTextField(
                         value = content,
                         onValueChange = { if (it.length <= 1000) content = it },
                         label = { Text("Idea details...") },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
+                        colors = textFieldColors
                     )
                     Text(
                         text = "${content.length}/1000",
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
+                        modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
                         color = if (content.length > 900) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 // Category Selection
-                Text("Category", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                var categoryExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = categoryExpanded,
-                    onExpandedChange = { categoryExpanded = !categoryExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = if (isCustomCategory) "Custom: $customCategory" else category,
-                        onValueChange = {},
-                        readOnly = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
-                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
-                    )
-                    ExposedDropdownMenu(
+                Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
+                    Text("Category", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    var categoryExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
                         expanded = categoryExpanded,
-                        onDismissRequest = { categoryExpanded = false }
+                        onExpandedChange = { categoryExpanded = !categoryExpanded }
                     ) {
-                        IdeaCategories.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(getCategoryIcon(cat), contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall), tint = MaterialTheme.colorScheme.primary)
-                                        Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
-                                        Text(cat)
+                        OutlinedTextField(
+                            value = if (isCustomCategory) "Custom: $customCategory" else category,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+                            shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
+                            colors = textFieldColors
+                        )
+                        ExposedDropdownMenu(
+                            expanded = categoryExpanded,
+                            onDismissRequest = { categoryExpanded = false }
+                        ) {
+                            IdeaCategories.forEach { cat ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(getCategoryIcon(cat), contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall), tint = MaterialTheme.colorScheme.primary)
+                                            Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
+                                            Text(cat)
+                                        }
+                                    },
+                                    onClick = {
+                                        category = cat
+                                        isCustomCategory = false
+                                        categoryExpanded = false
                                     }
-                                },
+                                )
+                            }
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                text = { Text("Custom...") },
                                 onClick = {
-                                    category = cat
-                                    isCustomCategory = false
+                                    isCustomCategory = true
                                     categoryExpanded = false
                                 }
                             )
                         }
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
-                            text = { Text("Custom...") },
-                            onClick = {
-                                isCustomCategory = true
-                                categoryExpanded = false
-                            }
+                    }
+
+                    if (isCustomCategory) {
+                        OutlinedTextField(
+                            value = customCategory,
+                            onValueChange = { customCategory = it },
+                            label = { Text("Custom Category Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
+                            colors = textFieldColors
                         )
                     }
                 }
 
-                if (isCustomCategory) {
-                    OutlinedTextField(
-                        value = customCategory,
-                        onValueChange = { customCategory = it },
-                        label = { Text("Custom Category Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
-                    )
-                }
-
                 // Color Selection
-                Text("Color Label", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)
-                ) {
-                    IdeaLabelColors.forEach { color ->
-                        val isSelected = selectedColor == color
-                        Box(
-                            modifier = Modifier
-                                .size(DesignSystem.IconSizeLarge)
-                                .clip(CircleShape)
-                                .background(if (color == Color.Transparent) MaterialTheme.colorScheme.surfaceVariant else color)
-                                .border(
-                                    width = if (isSelected) 3.dp else 0.dp,
-                                    color = if (isSelected) Color.White else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColor = color },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (color == Color.Transparent) MaterialTheme.colorScheme.primary else Color.White
-                                )
-                            } else if (color == Color.Transparent) {
-                                Icon(
-                                    imageVector = Icons.Default.Block,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                Column(verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)) {
+                    Text("Color Label", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)
+                    ) {
+                        IdeaLabelColors.forEach { color ->
+                            val isSelected = selectedColor == color
+                            Box(
+                                modifier = Modifier
+                                    .size(DesignSystem.IconSizeLarge)
+                                    .clip(CircleShape)
+                                    .background(if (color == Color.Transparent) MaterialTheme.colorScheme.surfaceVariant else color)
+                                    .border(
+                                        width = if (isSelected) 3.dp else 0.dp,
+                                        color = if (isSelected) Color.White else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .clickable { selectedColor = color },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (color == Color.Transparent) MaterialTheme.colorScheme.primary else Color.White
+                                    )
+                                } else if (color == Color.Transparent) {
+                                    Icon(
+                                        imageVector = Icons.Default.Block,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }

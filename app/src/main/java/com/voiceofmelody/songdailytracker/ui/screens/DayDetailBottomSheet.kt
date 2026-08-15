@@ -51,8 +51,9 @@ fun DayDetailBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = DesignSystem.CardPadding)
-                .padding(bottom = DesignSystem.SpacingXXLarge)
+                .padding(bottom = 116.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingXLarge)
         ) {

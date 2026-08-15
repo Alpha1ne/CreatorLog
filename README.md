@@ -1,5 +1,9 @@
 # CreatorLog — Content Tracker
 
+<p align="center">
+  <img src="assets/promo/creatorlog-showcase.jpeg" alt="CreatorLog app preview" width="800"/>
+</p>
+
 An Android app built to help an Instagram music page (Voice Of Melody) track its posting history, content ideas, and paid promotions in one place — no more scrolling back through the feed to remember what's already been posted.
 
 ## Features
@@ -21,6 +25,13 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Material 3
 
 ## What's New
+
+**v1.5.0**
+- Redesigned the bottom navigation bar into a floating, notched-pill style bar with an animated elevated icon that travels between tabs
+- Promotion amount is now optional for Pending/Partially Paid entries, and only required once a promotion is marked Paid
+- General UI polish across Settings and shared components (button sizing, spacing, borders)
+- Fixed content on Dashboard, Songs, Idea Vault, Promotions, Calendar, Backup & Restore, and Settings being partially hidden behind the new floating navigation bar
+- Updated to target the latest Android SDK (36)
 
 **v1.4.0**
 - Added Promotion Earnings Insights — view detailed financial performance directly from the Dashboard

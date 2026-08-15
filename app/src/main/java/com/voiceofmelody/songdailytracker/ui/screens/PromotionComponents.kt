@@ -197,7 +197,11 @@ fun EarningSummaryItem(label: String, amount: Double, color: Color, modifier: Mo
             Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(formatCurrency(amount), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+        Text(
+            text = if (amount == 0.0) "₹0" else formatCurrency(amount), 
+            style = MaterialTheme.typography.bodyLarge, 
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -255,7 +259,7 @@ fun PromotionGridItem(
             Spacer(modifier = Modifier.weight(1f))
 
             Text(
-                text = formatCurrency(promotion.amount),
+                text = if (promotion.amount == 0.0) "Amount TBD" else formatCurrency(promotion.amount),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Black
             )
@@ -342,7 +346,11 @@ fun PromotionItem(
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(formatCurrency(promotion.amount), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
+                Text(
+                    text = if (promotion.amount == 0.0) "Amount TBD" else formatCurrency(promotion.amount), 
+                    style = MaterialTheme.typography.labelLarge, 
+                    fontWeight = FontWeight.Black
+                )
             }
 
             Column(horizontalAlignment = Alignment.End) {

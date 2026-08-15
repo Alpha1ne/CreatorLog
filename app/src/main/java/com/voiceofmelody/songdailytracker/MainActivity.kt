@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -31,9 +32,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -46,6 +54,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -396,18 +406,17 @@ fun MainAppScreen(
                     )
                 )
             },
-            bottomBar = {
-                FloatingNavigationBar(
-                    currentTab = currentTab,
-                    onTabSelected = onTabSelected
-                )
-            },
             contentWindowInsets = WindowInsets.safeDrawing
         ) { innerPadding ->
             Surface(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    // UI FIX: Remove bottom padding to allow content to span behind the floating nav bar
+                    .padding(
+                        top = innerPadding.calculateTopPadding(),
+                        start = innerPadding.calculateStartPadding(LayoutDirection.Ltr),
+                        end = innerPadding.calculateEndPadding(LayoutDirection.Ltr)
+                    ),
                 color = MaterialTheme.colorScheme.background
             ) {
                 Box {
@@ -442,6 +451,19 @@ fun MainAppScreen(
             }
         }
 
+        // Overlay Navigation Bar
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(if (showSettings) 0f else 1f),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            FloatingNavigationBar(
+                currentTab = currentTab,
+                onTabSelected = onTabSelected
+            )
+        }
+
         // Settings Layer (Overlay/Retained)
         if (showSettings) {
             SettingsScreen(
@@ -464,152 +486,213 @@ fun FloatingNavigationBar(
     val tabs = remember { TrackerTab.entries.toTypedArray() }
     val selectedIndex = tabs.indexOf(currentTab)
     
-    // Animate the index to drive the sliding pill (preserving spring feel)
+    // ONE SOURCE OF TRUTH: Animated index drives Notch, Circle, and active icon
     val animatedIndex by animateFloatAsState(
         targetValue = selectedIndex.toFloat(),
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
-        label = "pillIndex"
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
+        label = "navIndex"
     )
+    
+    val barHeight = 64.dp
+    val circleSize = 58.dp
     
     Box(
         modifier = modifier
-            .padding(horizontal = DesignSystem.ScreenPadding)
-            .padding(bottom = DesignSystem.ScreenPadding)
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 12.dp)
             .navigationBarsPadding()
             .fillMaxWidth()
-            .height(72.dp)
-            .shadow(
-                elevation = 12.dp,
-                shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge + 4.dp),
-                ambientColor = Color.Black.copy(alpha = 0.5f),
-                spotColor = Color.Black.copy(alpha = 0.5f)
-            )
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge + 4.dp)
-            ),
-        contentAlignment = Alignment.Center
+            .height(barHeight + 36.dp),
+        contentAlignment = Alignment.BottomCenter
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // FIX 1: Persistent Sliding Indicator (Draw-phase only movement)
-            // Using a custom Layout to avoid structural changes in the Box/Row tree.
-            Layout(
-                content = {
+        val primaryColor = MaterialTheme.colorScheme.primary
+        val surfaceColor = MaterialTheme.colorScheme.surface
+        val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+
+        Layout(
+            content = {
+                // [0] Notched Bar Background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(barHeight)
+                        .shadow(6.dp, NotchedPillShape(animatedIndex, tabs.size), clip = false)
+                        .background(surfaceColor, NotchedPillShape(animatedIndex, tabs.size))
+                )
+
+                // [1] THE ACTIVE UNIT (Circle + Active Icon traveling together)
+                Box(
+                    modifier = Modifier
+                        .size(circleSize)
+                        .shadow(10.dp, CircleShape, spotColor = primaryColor.copy(alpha = 0.3f))
+                        .background(primaryColor, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Render icons inside the moving circle (blending during transition)
+                    // ALWAYS WHITE for contrast against purple background
+                    tabs.forEachIndexed { i, tab ->
+                        val iconAlpha = (1f - Math.abs(animatedIndex - i) * 2f).coerceIn(0f, 1f)
+                        if (iconAlpha > 0.01f) {
+                            Icon(
+                                painter = painterResource(id = tab.selectedIconRes),
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .graphicsLayer { alpha = iconAlpha }
+                            )
+                        }
+                    }
+                }
+
+                // [2, 3, 4] Tab Content Slots (Fixed positions for labels and unselected state)
+                tabs.forEachIndexed { i, tab ->
+                    // Proximity-based effects: Sinking icon fades as the circle arrives
+                    val sinkingIconAlpha = (Math.abs(animatedIndex - i) * 1.5f).coerceIn(0f, 1f)
+                    val labelAlpha = (Math.abs(animatedIndex - i) * 1.5f).coerceIn(0f, 1f)
+
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(8.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(24.dp))
-                    )
-                }
-            ) { measurables, constraints ->
-                val totalWidth = constraints.maxWidth
-                val tabCount = tabs.size
-                val tabWidth = totalWidth / tabCount
-                
-                val pillPlaceable = measurables.first().measure(
-                    constraints.copy(minWidth = tabWidth, maxWidth = tabWidth)
-                )
-                
-                layout(totalWidth, constraints.maxHeight) {
-                    // FIX 3: High-Precision Pill Alignment
-                    // Use (animatedIndex * totalWidth) / tabCount to avoid cumulative rounding errors
-                    // that occur when using animatedIndex * (totalWidth / tabCount).
-                    val xPosition = ((animatedIndex * totalWidth) / tabCount).toInt()
-                    pillPlaceable.placeWithLayer(x = xPosition, y = 0)
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { onTabSelected(tab) }
+                            )
+                            .testTag(tab.tag),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            // Unselected icon (Sinks/Fades out when tab is active) - THEME AWARE
+                            Icon(
+                                painter = painterResource(id = tab.unselectedIconRes),
+                                contentDescription = tab.title,
+                                tint = onSurfaceColor,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .graphicsLayer { alpha = sinkingIconAlpha }
+                            )
+                            
+                            Spacer(modifier = Modifier.height(4.dp))
+                            
+                            // Label - THEME AWARE
+                            Text(
+                                text = tab.title,
+                                color = onSurfaceColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.graphicsLayer { alpha = labelAlpha }
+                            )
+                        }
+                    }
                 }
             }
+        )
+{ measurables, constraints ->
+            val barPlaceable = measurables[0].measure(constraints)
+            val indicatorPlaceable = measurables[1].measure(constraints)
+            
+            val tabCount = tabs.size
+            val tabWidth = constraints.maxWidth / tabCount
+            // UI FIX: Constrain tab slots to exactly the barHeight for correct vertical centering
+            val itemConstraints = constraints.copy(
+                minWidth = tabWidth, 
+                maxWidth = tabWidth,
+                minHeight = barHeight.roundToPx(),
+                maxHeight = barHeight.roundToPx()
+            )
+            val tabPlaceables = measurables.subList(2, measurables.size).map { it.measure(itemConstraints) }
 
-            // Foreground Items
-            Row(modifier = Modifier.fillMaxSize()) {
-                tabs.forEach { tab ->
-                    FloatingNavItem(
-                        tab = tab,
-                        isSelected = currentTab == tab,
-                        onClick = { onTabSelected(tab) },
-                        modifier = Modifier.weight(1f)
-                    )
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val barY = (constraints.maxHeight - barHeight.roundToPx())
+                
+                // 1. Place the main bar
+                barPlaceable.place(0, barY)
+
+                // 2. Calculate the animated horizontal center
+                val centerX = (animatedIndex * tabWidth) + (tabWidth / 2f)
+
+                // 3. Place the elevated active circle (containing the icon)
+                // Positioned so its center is elevated by 10dp relative to the bar top
+                val circleCenterYOffset = 10.dp.toPx()
+                val indicatorX = (centerX - (indicatorPlaceable.width / 2f)).toInt()
+                val indicatorY = (barY + circleCenterYOffset - (indicatorPlaceable.height / 2f)).toInt()
+                indicatorPlaceable.placeWithLayer(indicatorX, indicatorY)
+
+                // 4. Place the static tab slots (now correctly centered inside the bar)
+                tabPlaceables.forEachIndexed { index, item ->
+                    item.place(index * tabWidth, barY)
                 }
             }
         }
     }
 }
 
-@Composable
-fun FloatingNavItem(
-    tab: TrackerTab,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-    
-    // FIX 2: Draw-phase Icon Scaling
-    val iconScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.15f else 1.0f,
-        animationSpec = spring(dampingRatio = 0.7f),
-        label = "scale"
-    )
+/**
+ * A custom shape that creates a smooth rounded pill with a moving concave cutout (notch).
+ * The notch is carefully curved to wrap around the lower part of the floating circle.
+ */
+class NotchedPillShape(private val animatedIndex: Float, private val tabCount: Int) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val path = Path().apply {
+            val width = size.width
+            val height = size.height
+            val tabWidth = width / tabCount
+            val centerX = (animatedIndex * tabWidth) + (tabWidth / 2f)
+            
+            val cornerRadius = with(density) { 26.dp.toPx() } // Slightly more rounded corners
+            
+            // Notch Geometry refined for 58dp circle
+            val cutoutWidth = with(density) { 84.dp.toPx() }
+            val cutoutDepth = with(density) { 34.dp.toPx() } 
+            
+            val cutoutStart = centerX - (cutoutWidth / 2f)
+            val cutoutEnd = centerX + (cutoutWidth / 2f)
 
-    // FIX 3: Layout-stable Label Visibility (Draw-phase alpha)
-    val labelAlpha by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.7f),
-        label = "labelAlpha"
-    )
-
-    // Animate vertical shift in draw-phase to match the previous visual centering behavior
-    // without the cost of a layout measurement pass.
-    // Shift up by 6dp when selected to reveal the label.
-    val verticalShift by animateFloatAsState(
-        targetValue = if (isSelected) with(density) { -6.dp.toPx() } else 0f,
-        animationSpec = spring(dampingRatio = 0.7f),
-        label = "verticalShift"
-    )
-
-    // FIX 2: Icon Centering (Independent coordinate system)
-    // Using a Box instead of a Column to ensure the Icon's base layout position 
-    // is always at the true center of the navigation item.
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(32.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
+            // Start Path (Top Left Corner)
+            moveTo(cornerRadius, 0f)
+            
+            // Top Edge -> Start of Notch
+            lineTo(cutoutStart, 0f)
+            
+            // The Notch (Symmetrical Cubic Bezier for an organic "dip" look)
+            cubicTo(
+                x1 = cutoutStart + (cutoutWidth * 0.2f), y1 = 0f,
+                x2 = centerX - (cutoutWidth * 0.25f), y2 = cutoutDepth,
+                x3 = centerX, y3 = cutoutDepth
             )
-            .testTag(tab.tag),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            painter = painterResource(id = if (isSelected) tab.selectedIconRes else tab.unselectedIconRes),
-            contentDescription = tab.title,
-            tint = if (isSelected) Color.White else Color.Gray.copy(alpha = 0.8f),
-            modifier = Modifier
-                .size(24.dp)
-                .graphicsLayer { 
-                    scaleX = iconScale
-                    scaleY = iconScale
-                    translationY = verticalShift
-                }
-        )
-        
-        Text(
-            text = tab.title,
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                // Place label below the centered icon. 
-                // Unselected verticalShift = 0 makes it invisible via alpha.
-                // Selected verticalShift < 0 moves the whole group up.
-                .padding(top = 34.dp) 
-                .graphicsLayer { 
-                    alpha = labelAlpha
-                    translationY = verticalShift
-                }
-        )
+            cubicTo(
+                x1 = centerX + (cutoutWidth * 0.25f), y1 = cutoutDepth,
+                x2 = cutoutEnd - (cutoutWidth * 0.2f), y2 = 0f,
+                x3 = cutoutEnd, y3 = 0f
+            )
+            
+            // Top Edge -> Top Right Corner
+            lineTo(width - cornerRadius, 0f)
+            
+            // Right side
+            arcTo(Rect(width - cornerRadius * 2, 0f, width, cornerRadius * 2), 270f, 90f, false)
+            lineTo(width, height - cornerRadius)
+            
+            // Bottom edge
+            arcTo(Rect(width - cornerRadius * 2, height - cornerRadius * 2, width, height), 0f, 90f, false)
+            lineTo(cornerRadius, height)
+            
+            // Left side
+            arcTo(Rect(0f, height - cornerRadius * 2, cornerRadius * 2, height), 90f, 90f, false)
+            lineTo(0f, cornerRadius)
+            arcTo(Rect(0f, 0f, cornerRadius * 2, cornerRadius * 2), 180f, 90f, false)
+            
+            close()
+        }
+        return Outline.Generic(path)
     }
 }
 

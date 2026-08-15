@@ -166,16 +166,17 @@ fun UnifiedSearchToolbar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(48.dp) // Reduced height from 56.dp for compact look
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier),
-        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusMedium), // Rounded rectangle shape (16.dp)
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        tonalElevation = 2.dp
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)), // Subtle border
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = DesignSystem.SpacingMedium),
+                .padding(horizontal = 12.dp), // Adjusted padding
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -185,12 +186,12 @@ fun UnifiedSearchToolbar(
                 modifier = Modifier.size(DesignSystem.IconSizeSmall)
             )
 
-            Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
+            Spacer(modifier = Modifier.width(8.dp)) // Tighter spacing between icon and text
 
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(vertical = DesignSystem.SpacingTiny),
+                    .padding(vertical = 4.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (query.isEmpty()) {
@@ -219,7 +220,7 @@ fun UnifiedSearchToolbar(
             if (query.isNotEmpty()) {
                 IconButton(
                     onClick = { onQueryChange("") },
-                    modifier = Modifier.size(DesignSystem.IconSizeLarge)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Clear,
@@ -228,21 +229,21 @@ fun UnifiedSearchToolbar(
                         modifier = Modifier.size(DesignSystem.IconSizeSmall)
                     )
                 }
-                Spacer(modifier = Modifier.width(DesignSystem.SpacingTiny))
+                Spacer(modifier = Modifier.width(4.dp))
             }
 
             VerticalDivider(
                 modifier = Modifier
-                    .height(24.dp)
-                    .padding(horizontal = DesignSystem.SpacingTiny),
+                    .height(20.dp) // Reduced divider height
+                    .padding(horizontal = 4.dp),
                 thickness = DesignSystem.BorderThickness,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
             )
 
             IconButton(
                 onClick = onFilterToggle,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(38.dp) // More compact button
                     .clip(CircleShape)
                     .background(
                         if (showFiltersPanel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -259,16 +260,16 @@ fun UnifiedSearchToolbar(
 
             VerticalDivider(
                 modifier = Modifier
-                    .height(24.dp)
-                    .padding(horizontal = DesignSystem.SpacingTiny),
+                    .height(20.dp)
+                    .padding(horizontal = 4.dp),
                 thickness = DesignSystem.BorderThickness,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
             )
 
             Row(
                 modifier = Modifier
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .height(36.dp) // Reduced height for view mode toggle
+                    .clip(RoundedCornerShape(18.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
                     .padding(2.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -296,7 +297,7 @@ private fun ViewModeIcon(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp) // Increased for better touch target within toolbar
+            .size(32.dp) // Reduced from 44.dp to fit the new 48dp toolbar
             .clip(CircleShape)
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primary
@@ -310,7 +311,7 @@ private fun ViewModeIcon(
             contentDescription = null,
             tint = if (isSelected) MaterialTheme.colorScheme.onPrimary
             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.size(DesignSystem.IconSizeSmall)
+            modifier = Modifier.size(18.dp) // Slightly smaller icon
         )
     }
 }

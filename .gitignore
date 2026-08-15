@@ -18,3 +18,5 @@ local.properties
 debug.keystore
 /.artifacts/
 /app/release/
+*.jks
+*.keystore

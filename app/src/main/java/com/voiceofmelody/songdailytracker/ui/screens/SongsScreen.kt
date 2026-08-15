@@ -221,7 +221,7 @@ fun SongsScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
             // Unified Search Toolbar Row
             Row(
                 modifier = Modifier
@@ -378,7 +378,8 @@ fun SongsScreen(
             onClick = { onNavigateToAddEdit(null) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp)
+                .navigationBarsPadding() // Account for system navigation bar
+                .padding(end = 20.dp, bottom = 116.dp) // Clear the Floating Nav Bar (95dp) + visual gap (21dp)
                 .testTag("add_song_fab"),
             contentDescription = "Record Content"
         )

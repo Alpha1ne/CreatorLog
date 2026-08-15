@@ -258,7 +258,6 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
                 isEnabled = !isOperating
             )
 
-            // Promotions CSV Section
             BackupCategoryCard(
                 title = "Promotions Spreadsheet (CSV)",
                 description = "Export your earnings data",
@@ -273,8 +272,6 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
                 },
                 isEnabled = !isOperating
             )
-
-            Spacer(modifier = Modifier.height(100.dp))
         }
 
         if (isOperating) {
@@ -327,51 +324,76 @@ fun BackupCategoryCard(
     icon: ImageVector,
     onExport: () -> Unit,
     onImport: () -> Unit,
-    exportLabel: String = "Export",
-    importLabel: String = "Import",
+    exportLabel: String = "Backup",
+    importLabel: String = "Restore",
     isEnabled: Boolean = true
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(DesignSystem.CardPadding)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(DesignSystem.IconSizeMedium))
-                Spacer(modifier = Modifier.width(DesignSystem.SpacingNormal))
-                Column {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(36.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
             }
-            Spacer(modifier = Modifier.height(DesignSystem.SpacingLarge))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(DesignSystem.SpacingSmall)
-            ) {
-                Button(
-                    onClick = onExport,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
-                    enabled = isEnabled
-                ) {
-                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall))
-                    Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
-                    Text(exportLabel, style = MaterialTheme.typography.labelLarge)
-                }
-                OutlinedButton(
-                    onClick = onImport,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
-                    enabled = isEnabled
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(DesignSystem.IconSizeSmall))
-                    Spacer(modifier = Modifier.width(DesignSystem.SpacingSmall))
-                    Text(importLabel, style = MaterialTheme.typography.labelLarge)
-                }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(
+                onClick = onExport,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                enabled = isEnabled,
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(exportLabel, style = MaterialTheme.typography.labelMedium)
+            }
+            TextButton(
+                onClick = onImport,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                enabled = isEnabled,
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.05f),
+                    contentColor = MaterialTheme.colorScheme.secondary
+                )
+            ) {
+                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(importLabel, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        )
     }
 }

@@ -72,11 +72,14 @@ fun PromotionsScreen(
             CreatorLogFAB(
                 onClick = { onNavigateToAddEdit(null) },
                 contentDescription = "Add Promotion",
-                modifier = Modifier.testTag("add_promotion_fab")
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 116.dp)
+                    .testTag("add_promotion_fab")
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).navigationBarsPadding()) {
             // Search Bar
             Box(modifier = Modifier.padding(DesignSystem.ScreenPadding)) {
                 UnifiedSearchToolbar(
@@ -135,7 +138,12 @@ fun PromotionsScreen(
                 if (viewMode == ViewMode.LIST) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(DesignSystem.ScreenPadding, 0.dp, DesignSystem.ScreenPadding, 100.dp),
+                        contentPadding = PaddingValues(
+                            start = DesignSystem.ScreenPadding, 
+                            top = 0.dp, 
+                            end = DesignSystem.ScreenPadding, 
+                            bottom = 116.dp
+                        ),
                         verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
                     ) {
                         items(filteredPromotions, key = { it.id }, contentType = { "promotion_item" }) { promo ->
@@ -150,7 +158,12 @@ fun PromotionsScreen(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(DesignSystem.ScreenPadding, 0.dp, DesignSystem.ScreenPadding, 100.dp),
+                        contentPadding = PaddingValues(
+                            start = DesignSystem.ScreenPadding, 
+                            top = 0.dp, 
+                            end = DesignSystem.ScreenPadding, 
+                            bottom = 116.dp
+                        ),
                         horizontalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing),
                         verticalArrangement = Arrangement.spacedBy(DesignSystem.CardSpacing)
                     ) {
