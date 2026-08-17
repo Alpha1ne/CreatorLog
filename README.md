@@ -1,9 +1,5 @@
 # CreatorLog — Content Tracker
 
-<p align="center">
-  <img src="assets/promo/creatorlog-showcase.jpeg" alt="CreatorLog app preview" width="800"/>
-</p>
-
 An Android app built to help an Instagram music page (Voice Of Melody) track its posting history, content ideas, and paid promotions in one place — no more scrolling back through the feed to remember what's already been posted.
 
 ## Features
@@ -81,3 +77,51 @@ Being upfront about this: it's a practical, functional app rather than a from-sc
 3. Allow Android Studio to fix any incompatibilities as it imports the project
 4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for reference)
 5. Run the app on an emulator or physical device
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/01-overview.jpeg" alt="CreatorLog app overview" width="800"/>
+</p>
+
+### Dashboard Overview
+Get a complete overview of your content, activities, and progress all in one place — daily summary, creator calendar, promotion earnings, and today's agenda at a glance.
+
+<p align="center">
+  <img src="assets/screenshots/02-dashboard.jpeg" alt="Dashboard Overview" width="500"/>
+</p>
+
+### Content Library
+Store, search, and manage all your posted content in one organized library — filter by status, sort by date or title, and edit or delete entries whenever you need.
+
+<p align="center">
+  <img src="assets/screenshots/03-content-library.jpeg" alt="Content Library" width="500"/>
+</p>
+
+### Planner & Ideas
+Plan your content ideas, set dates, track their status, and stay consistent with your posting journey — pin your best ideas and mark them as posted once live.
+
+<p align="center">
+  <img src="assets/screenshots/04-planner-ideas.jpeg" alt="Planner & Ideas" width="500"/>
+</p>
+
+### Promotion Earnings
+Track your promotions, payments, and earnings all in one place — total earnings overview, payment status breakdown (Paid/Pending/Partial), and a monthly earnings chart.
+
+<p align="center">
+  <img src="assets/screenshots/05-promotion-earnings.jpeg" alt="Promotion Earnings" width="500"/>
+</p>
+
+### Backup & Restore
+Secure your data with powerful backup options and restore anytime, anywhere — full JSON backup, or separate CSV exports for your content, planner, and promotions data.
+
+<p align="center">
+  <img src="assets/screenshots/06-backup-restore.jpeg" alt="Backup & Restore" width="500"/>
+</p>
+
+### Calendar & Reminders
+A visual calendar and smart reminders to help you stay on track and never miss a post — view by status, reschedule with a few taps, and get timely notifications.
+
+<p align="center">
+  <img src="assets/screenshots/07-calendar-reminders.jpeg" alt="Calendar & Reminders" width="500"/>
+</p>
