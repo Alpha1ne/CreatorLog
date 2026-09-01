@@ -5,6 +5,7 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 ## Features
 
 - **Dashboard** — quick overview of posting activity and promotion earnings
+- **Daily Streak** — track your current streak, longest streak, active days, weekly activity, and milestone achievements
 - **Creator Calendar** — see posts and reminders laid out by date
 - **Songs Tracker** — log every song post: title, movie, singers, music director, language, content link, and notes
 - **Idea Vault** — capture content ideas before they turn into posts, with posted-status tracking
@@ -21,6 +22,16 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Material 3
 
 ## What's New
+
+**v1.6.0**
+- Complete rebranding to CreatorLog, including a new technical package identity (`com.creatorlog.app`)
+- Added a dedicated **Daily Streak** experience — current streak, longest streak, total active days, weekly activity, milestones, and achievement tracking
+- Earned streak days remain recorded even if the original content is later deleted or edited; streak calculations only begin from the date the feature was first activated and don't retroactively count older content
+- Added Material You themed icon support (adaptive icon now responds to system color theming on Android 13+)
+- Improved Android back-button behavior — secondary screens now return to the Dashboard/previous screen instead of unexpectedly closing the app
+- Merged "Report an Issue" and "Send Feedback" into a single working "Feedback & Bug Reports" button that opens an email to creatorlogsupport@gmail.com
+- Settings and "What's New" version info is now read directly from the app build instead of being hardcoded
+- Minor formatting fix for promotion currency amounts across different device locales
 
 **v1.5.0**
 - Redesigned the bottom navigation bar into a floating, notched-pill style bar with an animated elevated icon that travels between tabs

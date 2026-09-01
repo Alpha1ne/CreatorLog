@@ -10,15 +10,15 @@ plugins {
 }
 
 android {
-  namespace = "com.voiceofmelody.songdailytracker"
+  namespace = "com.creatorlog.app"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.voiceofmelody.songdailytracker"
+    applicationId = "com.creatorlog.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 5
-    versionName = "1.5.0"
+    versionCode = 6
+    versionName = "1.6.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -75,6 +75,7 @@ dependencies {
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
+  implementation(libs.androidx.fragment.ktx)
   // implementation(libs.androidx.camera.camera2)
   // implementation(libs.androidx.camera.core)
   // implementation(libs.androidx.camera.lifecycle)

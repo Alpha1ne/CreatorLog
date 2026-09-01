@@ -20,3 +20,4 @@ debug.keystore
 /app/release/
 *.jks
 *.keystore
+*.aab
