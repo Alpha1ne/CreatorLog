@@ -139,10 +139,10 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                 
                 InfoItem(label = "Build", value = versionCode)
-                InfoItem(label = "Developer", value = "ATHUL C")
+                InfoItem(label = "Developer", value = "Alpha1ne")
                 
                 Text(
-                    text = "© 2026 ATHUL C. All rights reserved.",
+                    text = "© 2026 Alpha1ne. All rights reserved.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 12.dp)

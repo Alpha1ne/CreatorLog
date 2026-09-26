@@ -4,6 +4,7 @@
 
     <queries>
         <package android:name="com.instagram.android" />
+        <package android:name="com.instagram.lite" />
     </queries>
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

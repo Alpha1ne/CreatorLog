@@ -1,8 +1,16 @@
 package com.creatorlog.app.ui.screens
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -22,14 +30,26 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.creatorlog.app.R
+import com.creatorlog.app.ui.StreakDayActivity
 import com.creatorlog.app.ui.TrackerViewModel
 import com.creatorlog.app.ui.theme.*
+import com.creatorlog.app.util.openInstagramApp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -66,40 +86,377 @@ fun DailyStreakScreen(
             Spacer(modifier = Modifier.height(DesignSystem.SpacingSmall))
 
             stats?.let { dashboardStats ->
-                // 1. Current Streak Hero
+                // 1. Creator Profile Section
+                CreatorProfileSection()
+
+                // 2. Current Streak Hero
                 StreakHeroSection(streak = dashboardStats.currentStreak)
 
-                // 2. Weekly Activity
+                // 3. Weekly Activity
                 WeeklyActivitySection(weeklyData = dashboardStats.streakWeeklyActivity)
 
-                // 3. Today's Status
+                // 4. Today's Status
                 TodayStatusSection(isActiveToday = dashboardStats.streakWeeklyActivity.find { it.isToday }?.isActive ?: false)
 
-                // 4. Next Milestone
+                // 5. Next Milestone
                 MilestoneProgressSection(
                     currentDays = dashboardStats.totalActiveDays,
                     nextMilestone = dashboardStats.nextMilestone,
                     progress = dashboardStats.milestoneProgress
                 )
 
-                // 5. Milestone Badges
+                // 6. Milestone Badges
                 MilestoneBadgesSection(
                     achievedMilestones = dashboardStats.achievedMilestones
                 )
 
-                // 6. Streak Statistics
+                // 7. Streak Statistics
                 StreakStatsSection(
                     longestStreak = dashboardStats.longestStreak,
                     totalActiveDays = dashboardStats.totalActiveDays
                 )
 
-                // 7. Motivational Card
+                // 8. Motivational Card
                 MotivationalSection()
             }
 
             Spacer(modifier = Modifier.height(116.dp))
         }
     }
+}
+
+fun normalizeUsername(input: String): String {
+    val trimmed = input.trim()
+    val noAt = trimmed.dropWhile { it == '@' }.trim()
+    return if (noAt.isBlank()) "creatorlog" else noAt
+}
+
+@Composable
+fun CreatorProfileSection() {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("vof_settings", Context.MODE_PRIVATE) }
+    
+    var storedUsername by remember {
+        val raw = prefs.getString("instagram_username", "creatorlog") ?: "creatorlog"
+        mutableStateOf(normalizeUsername(raw))
+    }
+    var dpRefreshTrigger by remember { mutableIntStateOf(0) }
+    var profileBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    var showEditDialog by remember { mutableStateOf(false) }
+
+    val formattedUsername = remember(storedUsername) {
+        normalizeUsername(storedUsername)
+    }
+
+    LaunchedEffect(dpRefreshTrigger) {
+        val file = File(context.filesDir, "profile_dp.jpg")
+        if (file.exists() && file.length() > 0) {
+            val bitmap = withContext(Dispatchers.IO) {
+                try {
+                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            profileBitmap = bitmap
+        } else {
+            profileBitmap = null
+        }
+    }
+
+    Card(
+        onClick = { showEditDialog = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(DesignSystem.BorderThickness, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Circular 48.dp DP Container
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .border(
+                        width = 2.dp,
+                        brush = Brush.linearGradient(listOf(PrimaryBlue, SecondaryPurple)),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (profileBitmap != null) {
+                    Image(
+                        bitmap = profileBitmap!!,
+                        contentDescription = "Profile Picture",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
+            // Username and Subtitle
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = formattedUsername,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Instagram Creator",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Open Instagram App Shortcut Button
+            IconButton(
+                onClick = { openInstagramApp(context) },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_instagram),
+                    contentDescription = "Open Instagram",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            // Edit Profile Button
+            IconButton(
+                onClick = { showEditDialog = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit Profile",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+
+    if (showEditDialog) {
+        EditProfileDialog(
+            currentUsername = storedUsername,
+            hasDpImage = profileBitmap != null,
+            onDismiss = { showEditDialog = false },
+            onSaveUsername = { newUsername ->
+                val normalized = normalizeUsername(newUsername)
+                prefs.edit().putString("instagram_username", normalized).apply()
+                storedUsername = normalized
+                showEditDialog = false
+            },
+            onImageSelected = { uri ->
+                val success = saveProfileDpImage(context, uri)
+                if (success) {
+                    dpRefreshTrigger++
+                }
+            },
+            onRemoveImage = {
+                removeProfileDpImage(context)
+                dpRefreshTrigger++
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditProfileDialog(
+    currentUsername: String,
+    hasDpImage: Boolean,
+    onDismiss: () -> Unit,
+    onSaveUsername: (String) -> Unit,
+    onImageSelected: (Uri) -> Unit,
+    onRemoveImage: () -> Unit
+) {
+    var usernameInput by remember { mutableStateOf(currentUsername) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri?.let {
+            onImageSelected(it)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
+        title = {
+            Text(
+                text = "Edit Creator Profile",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Profile Picture",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Change Picture", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    if (hasDpImage) {
+                        OutlinedButton(
+                            onClick = onRemoveImage,
+                            shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Text(
+                    text = "Instagram Username",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                OutlinedTextField(
+                    value = usernameInput,
+                    onValueChange = { usernameInput = it },
+                    label = { Text("Username") },
+                    placeholder = { Text("e.g. mycreatorpage") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSaveUsername(usernameInput) },
+                shape = RoundedCornerShape(DesignSystem.CornerRadiusSmall)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+private fun saveProfileDpImage(context: Context, uri: Uri): Boolean {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return false
+        val originalBitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream.close()
+        if (originalBitmap == null) return false
+
+        // Center Crop to 1:1 Square
+        val width = originalBitmap.width
+        val height = originalBitmap.height
+        val squareSize = minOf(width, height)
+        val x = (width - squareSize) / 2
+        val y = (height - squareSize) / 2
+
+        val croppedBitmap = Bitmap.createBitmap(
+            originalBitmap, x, y, squareSize, squareSize
+        )
+
+        // Scale to max 800x800 for visual sharpness & small file footprint
+        val finalBitmap = if (squareSize > 800) {
+            Bitmap.createScaledBitmap(croppedBitmap, 800, 800, true)
+        } else {
+            croppedBitmap
+        }
+
+        val file = File(context.filesDir, "profile_dp.jpg")
+        file.outputStream().use { outputStream ->
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+        }
+
+        // Clean up memory
+        if (croppedBitmap != originalBitmap && croppedBitmap != finalBitmap) {
+            croppedBitmap.recycle()
+        }
+        if (finalBitmap != originalBitmap) {
+            finalBitmap.recycle()
+        }
+        originalBitmap.recycle()
+
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun removeProfileDpImage(context: Context) {
+    try {
+        val file = File(context.filesDir, "profile_dp.jpg")
+        if (file.exists()) {
+            file.delete()
+        }
+    } catch (_: Exception) {}
 }
 
 @Composable
@@ -153,7 +510,7 @@ fun StreakHeroSection(streak: Int) {
 }
 
 @Composable
-fun WeeklyActivitySection(weeklyData: List<com.creatorlog.app.ui.StreakDayActivity>) {
+fun WeeklyActivitySection(weeklyData: List<StreakDayActivity>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(DesignSystem.CornerRadiusLarge),
@@ -181,7 +538,7 @@ fun WeeklyActivitySection(weeklyData: List<com.creatorlog.app.ui.StreakDayActivi
 }
 
 @Composable
-fun WeeklyDayItem(day: com.creatorlog.app.ui.StreakDayActivity) {
+fun WeeklyDayItem(day: StreakDayActivity) {
     val sdf = SimpleDateFormat("d", Locale.getDefault())
     val dateStr = sdf.format(Date(day.date))
     

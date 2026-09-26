@@ -24,6 +24,7 @@ fun openInstagramApp(context: Context) {
     
     if (!intentLaunched) {
         Log.d("Instagram", "Failure: Instagram not installed")
+        Toast.makeText(context, "Instagram is not installed", Toast.LENGTH_SHORT).show()
     }
 }
 

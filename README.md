@@ -32,6 +32,8 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 - Merged "Report an Issue" and "Send Feedback" into a single working "Feedback & Bug Reports" button that opens an email to creatorlogsupport@gmail.com
 - Settings and "What's New" version info is now read directly from the app build instead of being hardcoded
 - Minor formatting fix for promotion currency amounts across different device locales
+- Fixed the Instagram shortcut button not detecting Instagram Lite on some devices, and added a clear message when Instagram isn't installed at all
+- Added an editable profile picture and Instagram username on the Daily Streak screen
 
 **v1.5.0**
 - Redesigned the bottom navigation bar into a floating, notched-pill style bar with an animated elevated icon that travels between tabs
