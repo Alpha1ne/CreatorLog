@@ -138,6 +138,7 @@ fun PromotionStatsCard(
 @Composable
 fun MonthlyEarningsChart(earnings: List<com.creatorlog.app.ui.MonthlyEarning>) {
     val maxVal = earnings.maxOfOrNull { it.amount }?.coerceAtLeast(1.0) ?: 1.0
+    val maxBarHeight = 85.dp
     
     val accessibilityDescription = remember(earnings) {
         val valuesDescription = earnings.asReversed().joinToString(", ") { 
@@ -149,8 +150,8 @@ fun MonthlyEarningsChart(earnings: List<com.creatorlog.app.ui.MonthlyEarning>) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp)
-            .padding(vertical = 8.dp)
+            .height(145.dp)
+            .padding(vertical = 4.dp)
             .semantics { contentDescription = accessibilityDescription }
     ) {
         Row(
@@ -159,17 +160,31 @@ fun MonthlyEarningsChart(earnings: List<com.creatorlog.app.ui.MonthlyEarning>) {
             verticalAlignment = Alignment.Bottom
         ) {
             earnings.forEach { earning ->
-                val barHeightFraction = (earning.amount / maxVal).toFloat()
+                val barHeight = if (maxVal > 0) {
+                    (maxBarHeight * (earning.amount / maxVal).toFloat()).coerceAtLeast(4.dp)
+                } else 4.dp
+
+                val displayAmount = if (earning.amount == 0.0) "₹0" else formatCurrency(earning.amount).removeSuffix(".00")
                 
                 Column(
                     modifier = Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Bottom
                 ) {
+                    Text(
+                        text = displayAmount,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .fillMaxHeight(barHeightFraction.coerceAtLeast(0.05f))
+                            .height(barHeight)
                             .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                             .background(
                                 brush = Brush.verticalGradient(
@@ -400,10 +415,16 @@ fun PaymentStatusBadge(status: PaymentStatus) {
     }
 }
 
+private val currencyFormatterThreadLocal = object : ThreadLocal<NumberFormat>() {
+    override fun initialValue(): NumberFormat {
+        return NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    }
+}
+
 fun formatCurrency(amount: Double): String {
     return try {
-        val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-        format.format(amount)
+        val format = currencyFormatterThreadLocal.get()
+        format?.format(amount) ?: "₹${String.format(Locale.getDefault(), "%.2f", amount)}"
     } catch (_: Exception) {
         "₹${String.format(Locale.getDefault(), "%.2f", amount)}"
     }

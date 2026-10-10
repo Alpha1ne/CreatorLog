@@ -407,12 +407,34 @@ fun EditProfileDialog(
 
 private fun saveProfileDpImage(context: Context, uri: Uri): Boolean {
     return try {
-        val inputStream = context.contentResolver.openInputStream(uri) ?: return false
-        val originalBitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream.close()
-        if (originalBitmap == null) return false
+        // 1. Decode bounds only to avoid full memory allocation
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            BitmapFactory.decodeStream(inputStream, null, options)
+        }
 
-        // Center Crop to 1:1 Square
+        if (options.outWidth <= 0 || options.outHeight <= 0) return false
+
+        // 2. Calculate inSampleSize
+        // We want the final square to be up to 800x800.
+        // So we can sample down until the shortest edge is around 800.
+        var inSampleSize = 1
+        val minEdge = minOf(options.outWidth, options.outHeight)
+        while (minEdge / (inSampleSize * 2) >= 800) {
+            inSampleSize *= 2
+        }
+
+        // 3. Decode the actual bitmap with the calculated inSampleSize
+        options.inJustDecodeBounds = false
+        options.inSampleSize = inSampleSize
+        
+        val originalBitmap = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            BitmapFactory.decodeStream(inputStream, null, options)
+        } ?: return false
+
+        // 4. Center Crop to 1:1 Square
         val width = originalBitmap.width
         val height = originalBitmap.height
         val squareSize = minOf(width, height)
@@ -423,13 +445,14 @@ private fun saveProfileDpImage(context: Context, uri: Uri): Boolean {
             originalBitmap, x, y, squareSize, squareSize
         )
 
-        // Scale to max 800x800 for visual sharpness & small file footprint
+        // 5. Scale to max 800x800 for visual sharpness & small file footprint
         val finalBitmap = if (squareSize > 800) {
             Bitmap.createScaledBitmap(croppedBitmap, 800, 800, true)
         } else {
             croppedBitmap
         }
 
+        // 6. Save to disk
         val file = File(context.filesDir, "profile_dp.jpg")
         file.outputStream().use { outputStream ->
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)

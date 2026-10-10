@@ -817,8 +817,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- JSON Backup & Export ---
-    fun exportBackupJson(): String {
-        return try {
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.Default) {
+        try {
             val root = JSONObject()
             val songsArray = JSONArray()
             allSongPosts.value?.forEach { song ->
@@ -1017,7 +1017,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // --- CSV Backup & Export ---
-    fun exportBackupCsvSongs(): String {
+    suspend fun exportBackupCsvSongs(): String = withContext(Dispatchers.Default) {
         val sb = StringBuilder()
         sb.append("id,entryNumber,title,movieName,singers,notes,musicDirector,language,postDate,contentLink,isPostedConfirmed\n")
         allSongPosts.value?.forEach { song ->
@@ -1033,10 +1033,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("\"${(song.contentLink ?: "").replace("\"", "\"\"")}\",")
               .append("${song.isPostedConfirmed}\n")
         }
-        return sb.toString()
+        sb.toString()
     }
 
-    fun exportBackupCsvIdeas(): String {
+    suspend fun exportBackupCsvIdeas(): String = withContext(Dispatchers.Default) {
         val sb = StringBuilder()
         sb.append("id,title,content,category,color,isPosted,createdAt,updatedAt,isPinned\n")
         allIdeas.value?.forEach { idea ->
@@ -1050,10 +1050,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("${idea.updatedAt},")
               .append("${idea.isPinned}\n")
         }
-        return sb.toString()
+        sb.toString()
     }
 
-    fun exportBackupCsvReminders(): String {
+    suspend fun exportBackupCsvReminders(): String = withContext(Dispatchers.Default) {
         val sb = StringBuilder()
         sb.append("id,title,note,reminderDate,reminderTime,notificationsEnabled,colorLabel,createdAt,updatedAt\n")
         allReminders.value?.forEach { reminder ->
@@ -1067,10 +1067,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("${reminder.createdAt},")
               .append("${reminder.updatedAt}\n")
         }
-        return sb.toString()
+        sb.toString()
     }
 
-    fun exportBackupCsvPromotions(): String {
+    suspend fun exportBackupCsvPromotions(): String = withContext(Dispatchers.Default) {
         val sb = StringBuilder()
         sb.append("id,promotionTitle,amount,paymentStatus,client,contentLink,notes,createdAt,paymentDate\n")
         allPromotions.value?.forEach { promo ->
@@ -1084,7 +1084,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
               .append("${promo.createdAt},")
               .append("${promo.paymentDate ?: ""}\n")
         }
-        return sb.toString()
+        sb.toString()
     }
 
     fun importBackupCsvSongs(csvString: String): Boolean {

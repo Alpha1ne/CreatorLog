@@ -304,7 +304,14 @@ fun WhatsNewDialog(versionName: String, versionCode: String, onDismiss: () -> Un
                 verticalArrangement = Arrangement.spacedBy(DesignSystem.SpacingLarge)
             ) {
                 WhatsNewSection(
-                    title = "NEW & IMPROVED",
+                    title = "NEW IN V1.7.0",
+                    items = listOf(
+                        "Promotion Earnings Chart Improvements" to "• View the exact earnings amount displayed above each month's bar.\n• Quickly compare monthly promotion earnings at a glance.\n• Improved chart readability while keeping the existing design."
+                    )
+                )
+
+                WhatsNewSection(
+                    title = "PREVIOUSLY IN V1.6.0",
                     items = listOf(
                         "Complete CreatorLog Rebranding" to "The application has been fully transitioned from its original identity to CreatorLog, including the new technical package identity com.creatorlog.app.",
                         "Daily Streak" to "Added a dedicated Daily Streak experience with current streak, longest streak, total active days, weekly activity, milestones, and achievement tracking.",

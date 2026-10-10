@@ -23,6 +23,12 @@ An Android app built to help an Instagram music page (Voice Of Melody) track its
 
 ## What's New
 
+**v1.7.0**
+- Backup & Restore exports (JSON and all CSV formats) now run in the background instead of on the main thread, keeping the UI responsive during large exports
+- Fixed a potential crash when setting a profile picture from a high-resolution camera photo, by downsampling the image during decode instead of loading it at full resolution
+- Improved the Promotion Earnings chart — bars now stay visible even for very low or zero-earning months, with the exact amount labeled on each bar
+- Minor internal fix for thread-safe currency formatting
+
 **v1.6.0**
 - Complete rebranding to CreatorLog, including a new technical package identity (`com.creatorlog.app`)
 - Added a dedicated **Daily Streak** experience — current streak, longest streak, total active days, weekly activity, milestones, and achievement tracking

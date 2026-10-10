@@ -50,12 +50,14 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
     ) { uri: Uri? ->
         uri?.let {
             isOperating = true
-            val json = viewModel.exportBackupJson()
-            viewModel.writeToFile(it, json) { success ->
-                isOperating = false
-                if (success) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch { snackbarHostState.showSnackbar("Backup created successfully") }
+            scope.launch {
+                val json = viewModel.exportBackupJson()
+                viewModel.writeToFile(it, json) { success ->
+                    isOperating = false
+                    if (success) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { snackbarHostState.showSnackbar("Backup created successfully") }
+                    }
                 }
             }
         }
@@ -89,12 +91,14 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
     ) { uri: Uri? ->
         uri?.let {
             isOperating = true
-            val csv = viewModel.exportBackupCsvSongs()
-            viewModel.writeToFile(it, csv) { success ->
-                isOperating = false
-                if (success) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch { snackbarHostState.showSnackbar("Content Library exported successfully") }
+            scope.launch {
+                val csv = viewModel.exportBackupCsvSongs()
+                viewModel.writeToFile(it, csv) { success ->
+                    isOperating = false
+                    if (success) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { snackbarHostState.showSnackbar("Content Library exported successfully") }
+                    }
                 }
             }
         }
@@ -127,12 +131,14 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
     ) { uri: Uri? ->
         uri?.let {
             isOperating = true
-            val csv = viewModel.exportBackupCsvIdeas()
-            viewModel.writeToFile(it, csv) { success ->
-                isOperating = false
-                if (success) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch { snackbarHostState.showSnackbar("Planner exported successfully") }
+            scope.launch {
+                val csv = viewModel.exportBackupCsvIdeas()
+                viewModel.writeToFile(it, csv) { success ->
+                    isOperating = false
+                    if (success) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { snackbarHostState.showSnackbar("Planner exported successfully") }
+                    }
                 }
             }
         }
@@ -165,12 +171,14 @@ fun BackupSection(viewModel: TrackerViewModel, snackbarHostState: SnackbarHostSt
     ) { uri: Uri? ->
         uri?.let {
             isOperating = true
-            val csv = viewModel.exportBackupCsvPromotions()
-            viewModel.writeToFile(it, csv) { success ->
-                isOperating = false
-                if (success) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch { snackbarHostState.showSnackbar("Promotions exported successfully") }
+            scope.launch {
+                val csv = viewModel.exportBackupCsvPromotions()
+                viewModel.writeToFile(it, csv) { success ->
+                    isOperating = false
+                    if (success) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        scope.launch { snackbarHostState.showSnackbar("Promotions exported successfully") }
+                    }
                 }
             }
         }
